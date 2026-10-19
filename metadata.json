@@ -1,0 +1,6 @@
+{
+  "name": "Femboy Survival: Archetype Rush",
+  "description": "A top-down arcade survival shooter where you dodge, outshoot, and evade relentless pursuers across unique archetypes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
