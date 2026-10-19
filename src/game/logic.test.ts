@@ -136,3 +136,88 @@ test('city map is expanded with open avenues and spawns officers not sheriffs', 
   assert.ok(cityArchetypes.includes('officer'));
   assert.equal(cityArchetypes.includes('sheriff'), false, 'City should not spawn sheriffs');
 });
+
+test('sheriff stops summoning after reaching stage cop limit and switches to direct pursuit', () => {
+  const sheriff: EnemyState = {
+    id: 10,
+    archetype: 'sheriff',
+    x: 400,
+    y: 400,
+    vx: 0,
+    vy: 0,
+    radius: 19,
+    hp: 50,
+    maxHp: 50,
+    baseSpeed: 100,
+    speedMultiplier: 1.0,
+    angle: 0,
+    knockbackVx: 0,
+    knockbackVy: 0,
+    hitFlashTimer: 0,
+    speechText: '',
+    speechTimer: 0,
+    specialTimer: 0,
+    copsSummoned: 1, // Already hit quota
+    stageQuota: 1,
+  };
+
+  const result = updateEnemyAI(sheriff, 450, 400, [sheriff], [], undefined, 0.1, 2000, 2000, 20);
+  assert.equal(result.requestsOfficerBackup, undefined, 'Sheriff should not summon more officers beyond quota');
+  assert.equal(sheriff.isKiting, false, 'Sheriff should chase directly, not kite');
+  // Moving toward player (x increasing)
+  assert.ok(sheriff.vx > 0, 'Sheriff should advance toward player');
+});
+
+test('officer patrols with moderate pace when unalerted and alerts upon line of sight', () => {
+  const officer: EnemyState = {
+    id: 11,
+    archetype: 'officer',
+    x: 300,
+    y: 300,
+    vx: 0,
+    vy: 0,
+    radius: 18,
+    hp: 36,
+    maxHp: 36,
+    baseSpeed: 175,
+    speedMultiplier: 1.0,
+    angle: 0, // facing right
+    knockbackVx: 0,
+    knockbackVy: 0,
+    hitFlashTimer: 0,
+    speechText: '',
+    speechTimer: 0,
+    specialTimer: 0,
+    isAlerted: false,
+    patrolAngle: 0,
+    patrolTimer: 3.0,
+  };
+
+  // Player far away at (900, 900) -> not alerted
+  updateEnemyAI(officer, 900, 900, [officer], [], undefined, 0.1, 2000, 2000);
+  assert.equal(officer.isAlerted, false, 'Officer should stay unalerted when player is outside LOS');
+  assert.equal(officer.isSirenActive, false);
+
+  // Player right in front of officer at (420, 300) -> distance 120px, angle 0 -> alerted!
+  updateEnemyAI(officer, 420, 300, [officer], [], undefined, 0.1, 2000, 2000);
+  assert.equal(officer.isAlerted, true, 'Officer should alert upon spotting player in forward cone');
+  assert.equal(officer.isSirenActive, true, 'Officer siren should activate upon alert');
+});
+
+test('mob caps and heart exp progression scale cleanly', async () => {
+  const { getMaxMobCap, getExpForLevel, rollEnemyUpgrades, ENEMY_UPGRADE_POOL } = await import('./logic.ts');
+  assert.equal(getMaxMobCap('home'), 10);
+  assert.equal(getMaxMobCap('forest'), 14);
+  assert.equal(getMaxMobCap('city'), 16);
+
+  assert.equal(getExpForLevel(1), 15);
+  assert.equal(getExpForLevel(2), 25);
+  assert.equal(getExpForLevel(3), 40);
+
+  assert.ok(ENEMY_UPGRADE_POOL.length >= 24);
+  const rolled = rollEnemyUpgrades([], 3);
+  assert.equal(rolled.length, 3);
+  assert.notEqual(rolled[0].id, rolled[1].id);
+  assert.notEqual(rolled[1].id, rolled[2].id);
+});
+

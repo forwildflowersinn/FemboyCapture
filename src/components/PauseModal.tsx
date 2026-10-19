@@ -8,6 +8,7 @@ interface PauseModalProps {
   onMainMenu: () => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  onOpenManual?: () => void;
 }
 
 export const PauseModal: React.FC<PauseModalProps> = ({
@@ -16,6 +17,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   onMainMenu,
   isMuted,
   onToggleMute,
+  onOpenManual,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -44,6 +46,15 @@ export const PauseModal: React.FC<PauseModalProps> = ({
             {GAME_TEXT.pause.resumeButton}
             <span className="text-xs opacity-70">(Esc / P)</span>
           </button>
+
+          {onOpenManual && (
+            <button
+              onClick={onOpenManual}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-semibold text-sm text-pink-300 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>DEBUFF MANUAL</span>
+            </button>
+          )}
 
           <button
             onClick={onRestart}

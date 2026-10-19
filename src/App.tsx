@@ -13,12 +13,18 @@ import {
   HazardPuddle,
   MovingCar,
   Civilian,
+  HeartPickup,
+  EnemyUpgrade,
   MapType,
   MapEnvironment,
   createMapEnvironment,
   WEAPON_DEFS,
   getActiveArchetypes,
   getSpawnInterval,
+  getStageCopLimit,
+  getMaxMobCap,
+  getExpForLevel,
+  rollEnemyUpgrades,
   createArchetypeSpecs,
   updateEnemyAI,
   checkCircleOverlap,
@@ -35,6 +41,7 @@ import {
   drawCars,
   drawCivilians,
   drawWeaponPickups,
+  drawHearts,
   drawPlayer,
   drawEnemies,
   drawBullets,
@@ -48,15 +55,17 @@ import { TitleScreen } from './components/TitleScreen.tsx';
 import { GameHud } from './components/GameHud.tsx';
 import { GameOverSunset } from './components/GameOverSunset.tsx';
 import { PauseModal } from './components/PauseModal.tsx';
+import { LevelUpModal } from './components/LevelUpModal.tsx';
+import { DebuffManualModal } from './components/DebuffManualModal.tsx';
 
-type GameState = 'title' | 'playing' | 'paused' | 'gameover';
+type GameState = 'title' | 'playing' | 'paused' | 'levelup' | 'gameover';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>('title');
   const [selectedMap, setSelectedMap] = useState<MapType>('forest');
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
-  // HUD state
+  // HUD and Player Progression state
   const [survivalTime, setSurvivalTime] = useState<number>(0);
   const [bestTime, setBestTime] = useState<number>(0);
   const [hp, setHp] = useState<number>(5);
@@ -66,6 +75,20 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [activeDebuffs, setActiveDebuffs] = useState<ActiveDebuff[]>([]);
   const [caughtByArchetype, setCaughtByArchetype] = useState<ArchetypeId>('sheriff');
+  const [isShinyCaught, setIsShinyCaught] = useState<boolean>(false);
+
+  // Heart EXP & Fascination Progression
+  const [adorationLevel, setAdorationLevel] = useState<number>(1);
+  const [adorationExp, setAdorationExp] = useState<number>(0);
+  const [expToNextLevel, setExpToNextLevel] = useState<number>(getExpForLevel(1));
+  const [activeEnemyUpgrades, setActiveEnemyUpgrades] = useState<string[]>([]);
+  const [pendingLevelUpUpgrades, setPendingLevelUpUpgrades] = useState<EnemyUpgrade[] | null>(null);
+  const [isDebuffManualOpen, setIsDebuffManualOpen] = useState<boolean>(false);
+
+  // Synchronous refs for 60fps simulation
+  const adorationLevelRef = useRef<number>(1);
+  const adorationExpRef = useRef<number>(0);
+  const activeUpgradesRef = useRef<string[]>([]);
 
   // Canvas and game loop refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -96,6 +119,7 @@ export default function App() {
   const enemiesRef = useRef<EnemyState[]>([]);
   const bulletsRef = useRef<BulletState[]>([]);
   const pickupsRef = useRef<WeaponPickupState[]>([]);
+  const heartsRef = useRef<HeartPickup[]>([]);
   const puddlesRef = useRef<HazardPuddle[]>([]);
   const carsRef = useRef<MovingCar[]>([]);
   const civiliansRef = useRef<Civilian[]>([]);
@@ -112,7 +136,7 @@ export default function App() {
     }[]
   >([]);
 
-  // Simulation timers
+  // Simulation timers & counters
   const simTimeRef = useRef<number>(0);
   const spawnTimerRef = useRef<number>(0);
   const pickupSpawnTimerRef = useRef<number>(0);
@@ -120,10 +144,17 @@ export default function App() {
   const enemyIdCounter = useRef<number>(1);
   const bulletIdCounter = useRef<number>(1);
   const pickupIdCounter = useRef<number>(1);
+  const heartIdCounter = useRef<number>(1);
   const puddleIdCounter = useRef<number>(1);
   const carIdCounter = useRef<number>(1);
   const civilianIdCounter = useRef<number>(1);
   const notificationTimeoutRef = useRef<number | null>(null);
+
+  // Debuff runtime timers & state
+  const twitchTimerRef = useRef<number>(0);
+  const stumbleTimerRef = useRef<number>(0);
+  const pickupHoverTimersRef = useRef<Map<number, number>>(new Map());
+  const cautionRibbonsRef = useRef<{ x: number; y: number; duration: number }[]>([]);
 
   // Inputs
   const keysDown = useRef<Set<string>>(new Set());
@@ -144,7 +175,7 @@ export default function App() {
     }
   }, []);
 
-  // Sync dataset.state
+  // Sync dataset.state for CSS and body
   useEffect(() => {
     document.body.dataset.state = gameState;
   }, [gameState]);
@@ -183,12 +214,19 @@ export default function App() {
     });
   }, []);
 
-  // Spawns a single enemy
+  // Spawns a single enemy with Mob Cap and Archetype Map Theme adherence
   const spawnEnemy = useCallback((overrideArchetype?: ArchetypeId) => {
     const env = mapEnvRef.current;
+
+    // Mob cap enforcement: keep numbers manageable and formidable, never an overbearing 90+ swarm!
+    const maxCap = getMaxMobCap(env.id);
+    if (enemiesRef.current.length >= maxCap) {
+      return;
+    }
+
     const activePool = getActiveArchetypes(simTimeRef.current, env.id);
     const archetype = overrideArchetype || activePool[Math.floor(Math.random() * activePool.length)];
-    const specs = createArchetypeSpecs(archetype, simTimeRef.current);
+    const specs = createArchetypeSpecs(archetype, simTimeRef.current, activeUpgradesRef.current);
 
     let x = env.width / 2;
     let y = env.height / 2;
@@ -212,6 +250,13 @@ export default function App() {
     const initialCallout =
       archInfo?.callouts[Math.floor(Math.random() * archInfo.callouts.length)] || '';
 
+    // Rare shiny pursuer roll (1.5% chance)
+    const isShiny = Math.random() < 0.015;
+    if (isShiny) {
+      sounds.playShinyAlert();
+      showNotification('★ A RARE SHINY PURSUER HAS APPEARED! DO NOT GET TOUCHED! ★');
+    }
+
     enemiesRef.current.push({
       id: enemyIdCounter.current++,
       archetype,
@@ -231,8 +276,14 @@ export default function App() {
       speechText: initialCallout,
       speechTimer: 2.4,
       specialTimer: 2.0,
+      isShiny,
+      copsSummoned: 0,
+      stageQuota: getStageCopLimit(simTimeRef.current),
+      isAlerted: false,
+      patrolAngle: Math.random() * Math.PI * 2,
+      patrolTimer: 2.5,
     });
-  }, []);
+  }, [showNotification]);
 
   // Reset and start new run
   const startGame = useCallback((mapToStart?: MapType) => {
@@ -260,15 +311,31 @@ export default function App() {
     enemiesRef.current = [];
     bulletsRef.current = [];
     pickupsRef.current = [];
+    heartsRef.current = [];
     puddlesRef.current = [];
     particlesRef.current = [];
     carsRef.current = [];
     civiliansRef.current = [];
+    cautionRibbonsRef.current = [];
+    pickupHoverTimersRef.current.clear();
 
     simTimeRef.current = 0;
     spawnTimerRef.current = 0;
     pickupSpawnTimerRef.current = 0;
     defeatedCountRef.current = 0;
+    twitchTimerRef.current = 0;
+    stumbleTimerRef.current = 0;
+
+    adorationLevelRef.current = 1;
+    adorationExpRef.current = 0;
+    activeUpgradesRef.current = [];
+    setAdorationLevel(1);
+    setAdorationExp(0);
+    setExpToNextLevel(getExpForLevel(1));
+    setActiveEnemyUpgrades([]);
+    setPendingLevelUpUpgrades(null);
+    setIsDebuffManualOpen(false);
+    setIsShinyCaught(false);
 
     if (env.id === 'city') {
       const carColors = ['#ef4444', '#facc15', '#3b82f6', '#ec4899', '#ffffff', '#10b981'];
@@ -299,6 +366,8 @@ export default function App() {
           color: civColors[Math.floor(Math.random() * civColors.length)],
           isPanicked: false,
           panicTimer: 0,
+          wanderTimer: 2 + Math.random() * 3,
+          pauseTimer: 0,
         });
       }
     }
@@ -337,8 +406,8 @@ export default function App() {
     setIsMuted(next);
   }, []);
 
-  // Fire active weapon (taking debuffs into account)
-  const fireCurrentWeapon = useCallback(() => {
+  // Fire active weapon taking debuffs (burst-lock, recoil pull, move penalty, etc.) into account
+  const fireCurrentWeapon = useCallback((isBonusBurst: boolean = false) => {
     const p = playerRef.current;
     const def = WEAPON_DEFS[p.activeWeaponKey] || WEAPON_DEFS.pistol;
 
@@ -351,9 +420,11 @@ export default function App() {
     );
 
     sounds.playShoot(def.id);
-    p.fireCooldown = def.fireInterval * debuffStats.fireIntervalMultiplier;
+    if (!isBonusBurst) {
+      p.fireCooldown = def.fireInterval * debuffStats.fireIntervalMultiplier;
+    }
 
-    if (def.maxAmmo !== -1) {
+    if (def.maxAmmo !== -1 && !isBonusBurst) {
       p.ammo -= 1;
       if (p.ammo <= 0) {
         p.activeWeaponKey = 'pistol';
@@ -364,9 +435,20 @@ export default function App() {
       setActiveWeaponKey(p.activeWeaponKey);
     }
 
+    // Recoil Pull debuff: Gunfire knocks player back slightly opposite aim angle
+    if (debuffStats.recoilPull > 0) {
+      p.vx -= Math.cos(p.angle) * 75 * debuffStats.recoilPull;
+      p.vy -= Math.sin(p.angle) * 75 * debuffStats.recoilPull;
+    }
+
     const baseAngle = p.angle;
     const currentSpread = def.spreadAngle * debuffStats.spreadMultiplier;
     const halfSpread = currentSpread / 2;
+
+    const isMoving = Math.hypot(p.vx, p.vy) > 20;
+    const effectiveBulletSpeed = isMoving
+      ? def.bulletSpeed * debuffStats.moveShotSpeedPenalty
+      : def.bulletSpeed;
 
     for (let i = 0; i < def.pelletCount; i++) {
       let shotAngle = baseAngle;
@@ -381,11 +463,11 @@ export default function App() {
         id: bulletIdCounter.current++,
         x: p.x + Math.cos(baseAngle) * (p.radius + 6),
         y: p.y + Math.sin(baseAngle) * (p.radius + 6),
-        vx: Math.cos(shotAngle) * def.bulletSpeed,
-        vy: Math.sin(shotAngle) * def.bulletSpeed,
+        vx: Math.cos(shotAngle) * effectiveBulletSpeed,
+        vy: Math.sin(shotAngle) * effectiveBulletSpeed,
         radius: def.bulletRadius,
         damage: def.damage * debuffStats.damageMultiplier,
-        knockback: def.knockback,
+        knockback: def.knockback * debuffStats.knockbackDealtMultiplier,
         color: def.color,
         trailColor: def.trailColor,
         lifetime: 0,
@@ -393,6 +475,27 @@ export default function App() {
         isExplosive: def.isExplosive,
         explosionRadius: def.explosionRadius,
       });
+    }
+
+    // Burst Lock debuff: Handcuff forces a rapid second pair shot
+    if (debuffStats.burstLock && !isBonusBurst) {
+      window.setTimeout(() => {
+        if (playerRef.current.hp > 0) {
+          fireCurrentWeapon(true);
+        }
+      }, 75);
+    }
+
+    // Tomboy competitive fever upgrade: Whenever player fires, Roxie gains sprint boost
+    if (activeUpgradesRef.current.includes('tomboy_competitive_spirit')) {
+      for (const en of enemiesRef.current) {
+        if (en.archetype === 'tomboy') {
+          en.speedMultiplier = 1.35;
+          window.setTimeout(() => {
+            en.speedMultiplier = 1.0;
+          }, 1000);
+        }
+      }
     }
 
     // City chaos mechanics: shooting near civilians alerts Patrol Officers
@@ -409,6 +512,21 @@ export default function App() {
       }
     }
   }, [showNotification, spawnEnemy]);
+
+  // Handle Level Up Selection
+  const handleSelectUpgrade = useCallback(
+    (upgrade: EnemyUpgrade) => {
+      sounds.playUpgradeSelect();
+      const updated = [...activeUpgradesRef.current, upgrade.id];
+      activeUpgradesRef.current = updated;
+      setActiveEnemyUpgrades(updated);
+      setPendingLevelUpUpgrades(null);
+
+      showNotification(`Pursuer Upgrade: ${upgrade.title}!`);
+      setGameState('playing');
+    },
+    [showNotification]
+  );
 
   useEffect(() => {
     const handleResize = () => {
@@ -436,7 +554,7 @@ export default function App() {
         else if (gameState === 'paused') setGameState('playing');
       }
 
-      if ((e.key === 'r' || e.key === 'R') && gameState === 'playing') {
+      if ((e.key === 'r' || e.key === 'R') && (gameState === 'playing' || gameState === 'paused')) {
         startGame();
       }
 
@@ -455,7 +573,7 @@ export default function App() {
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0) isMouseDown.current = true;
+      if (e.button === 0 && gameState === 'playing') isMouseDown.current = true;
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -463,7 +581,7 @@ export default function App() {
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
+      if (e.touches.length > 0 && gameState === 'playing') {
         const touch = e.touches[0];
         mousePos.current = { x: touch.clientX, y: touch.clientY };
         isMouseDown.current = true;
@@ -530,6 +648,24 @@ export default function App() {
 
     let hudTimerAccumulator = 0;
 
+    const triggerGameOver = (catcher: ArchetypeId, isShiny: boolean = false) => {
+      sounds.playGameOver();
+      setCaughtByArchetype(catcher);
+      setIsShinyCaught(isShiny);
+      setGameState('gameover');
+      const finalTime = simTimeRef.current;
+      setSurvivalTime(finalTime);
+      setBestTime((prev) => {
+        const next = Math.max(prev, finalTime);
+        try {
+          localStorage.setItem('femboy_survival_best_time', next.toString());
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    };
+
     const gameLoop = (timestamp: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp;
       const rawDt = (timestamp - lastTimeRef.current) / 1000;
@@ -549,7 +685,7 @@ export default function App() {
 
         const player = playerRef.current;
 
-        // Compute debuff-modified stats
+        // Compute debuff-modified player stats
         const debuffStats = computeDebuffedPlayerStats(
           290,
           10,
@@ -558,7 +694,7 @@ export default function App() {
           player.activeDebuffs
         );
 
-        // 1. Process Movement
+        // 1. Process Movement Inputs
         let moveX = 0;
         let moveY = 0;
         if (keysDown.current.has('w') || keysDown.current.has('arrowup')) moveY -= 1;
@@ -574,6 +710,22 @@ export default function App() {
         const moveLen = Math.hypot(moveX, moveY);
         let currentSpeed = debuffStats.speed;
 
+        // Twisted Ankle debuff: Stumble delay when cutting direction sharply
+        if (debuffStats.turnStumble && moveLen > 0) {
+          const currentVelLen = Math.hypot(player.vx, player.vy);
+          if (currentVelLen > 40) {
+            const dot = (player.vx / currentVelLen) * (moveX / moveLen) + (player.vy / currentVelLen) * (moveY / moveLen);
+            if (dot < -0.4 && stumbleTimerRef.current <= 0) {
+              stumbleTimerRef.current = 0.22;
+              sounds.playPlayerHurt();
+            }
+          }
+        }
+        if (stumbleTimerRef.current > 0) {
+          stumbleTimerRef.current -= dt;
+          currentSpeed *= 0.35;
+        }
+
         // Forest: Bushes slow movement
         if (env.id === 'forest') {
           for (const bush of env.bushes) {
@@ -584,7 +736,7 @@ export default function App() {
           }
         }
 
-        // Puddles
+        // Puddles (e.g. coffee) slow movement
         for (const puddle of puddlesRef.current) {
           if (distanceSq(player.x, player.y, puddle.x, puddle.y) < puddle.radius * puddle.radius) {
             currentSpeed *= 0.6;
@@ -592,16 +744,34 @@ export default function App() {
           }
         }
 
+        // Drift momentum debuff: ice-like slipperiness vs responsive traction
+        const damping = debuffStats.driftMomentum;
         if (moveLen > 0) {
-          player.vx = (moveX / moveLen) * currentSpeed;
-          player.vy = (moveY / moveLen) * currentSpeed;
+          const targetVx = (moveX / moveLen) * currentSpeed;
+          const targetVy = (moveY / moveLen) * currentSpeed;
+          player.vx = player.vx * (1 - (1 - damping) * 4) + targetVx * (1 - damping) * 4;
+          player.vy = player.vy * (1 - (1 - damping) * 4) + targetVy * (1 - damping) * 4;
         } else {
-          player.vx *= 0.75;
-          player.vy *= 0.75;
+          player.vx *= damping;
+          player.vy *= damping;
         }
 
         player.x += player.vx * dt;
         player.y += player.vy * dt;
+
+        // Caution ribbon trail debuff: Leaves ribbon trail behind player that speeds pursuers up!
+        if (debuffStats.cautionTether) {
+          if (Math.random() < 0.2) {
+            cautionRibbonsRef.current.push({
+              x: player.x,
+              y: player.y,
+              duration: 4.5,
+            });
+          }
+        }
+        cautionRibbonsRef.current = cautionRibbonsRef.current
+          .map((r) => ({ ...r, duration: r.duration - dt }))
+          .filter((r) => r.duration > 0);
 
         // Wall collisions
         for (const w of env.walls) {
@@ -619,19 +789,38 @@ export default function App() {
         const cameraY = Math.max(0, Math.min(env.height - canvas.height, player.y - canvas.height / 2));
         const targetWorldX = mousePos.current.x + cameraX;
         const targetWorldY = mousePos.current.y + cameraY;
-        player.angle = Math.atan2(targetWorldY - player.y, targetWorldX - player.x);
+
+        // Crosshair Sway debuff: Aim angle sways gently in a figure-eight / sine loop
+        const swayOffset = debuffStats.crosshairSway > 0
+          ? Math.sin(simTimeRef.current * 4) * 0.12 * debuffStats.crosshairSway
+          : 0;
+        player.angle = Math.atan2(targetWorldY - player.y, targetWorldX - player.x) + swayOffset;
 
         if (player.fireCooldown > 0) player.fireCooldown -= dt;
         if (isMouseDown.current && player.fireCooldown <= 0) {
           fireCurrentWeapon();
         }
 
+        // Periodic motor twitch debuff: Fires involuntary stray shot
+        if (debuffStats.periodicTwitchInterval > 0) {
+          twitchTimerRef.current += dt;
+          if (twitchTimerRef.current >= debuffStats.periodicTwitchInterval) {
+            twitchTimerRef.current = 0;
+            const originalAngle = player.angle;
+            player.angle += (Math.random() - 0.5) * 1.8;
+            fireCurrentWeapon(true);
+            player.angle = originalAngle;
+            showNotification('Motor spasm! Involuntary stray shot fired!');
+          }
+        }
+
         if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-        // 2. City traffic updates & collisions
+        // 2. City traffic & Civilian AI updates
         if (env.id === 'city') {
+          const carSpeedMult = debuffStats.carSpeedMultiplier;
           for (const car of carsRef.current) {
-            car.x += car.vx * dt;
+            car.x += car.vx * carSpeedMult * dt;
             if (car.vx > 0 && car.x > env.width + 120) car.x = -120;
             if (car.vx < 0 && car.x < -120) car.x = env.width + 120;
 
@@ -640,7 +829,7 @@ export default function App() {
               checkCircleBoxOverlap(player.x, player.y, player.radius, car.x - car.w / 2, car.y - car.h / 2, car.w, car.h)
             ) {
               player.hp -= 1;
-              player.invincibleTimer = 1.2;
+              player.invincibleTimer = 1.2 * debuffStats.invulnDurationMultiplier;
               setHp(player.hp);
               sounds.playPlayerHurt();
               showNotification(GAME_TEXT.hud.carHitWarning);
@@ -649,7 +838,6 @@ export default function App() {
               player.vy = -200;
 
               if (player.hp <= 0) {
-                setCaughtByArchetype('officer');
                 triggerGameOver('officer');
                 break;
               }
@@ -691,8 +879,18 @@ export default function App() {
           .map((p) => ({ ...p, duration: p.duration - dt }))
           .filter((p) => p.duration > 0);
 
-        // 4. Update Enemies with Smart Pathing & Debuff On Contact
+        // 4. Update Enemies with Smart Pathing, Sheriff Stage Cop Quota, Officer Patrol & Upgrades
         for (const enemy of enemiesRef.current) {
+          // Caution ribbon trail boost
+          if (cautionRibbonsRef.current.length > 0) {
+            for (const rib of cautionRibbonsRef.current) {
+              if (distanceSq(enemy.x, enemy.y, rib.x, rib.y) < 32 * 32) {
+                enemy.speedMultiplier = 1.35;
+                break;
+              }
+            }
+          }
+
           const aiResult = updateEnemyAI(
             enemy,
             player.x,
@@ -702,7 +900,9 @@ export default function App() {
             env.doorways,
             dt,
             env.width,
-            env.height
+            env.height,
+            simTimeRef.current,
+            activeUpgradesRef.current
           );
 
           if (aiResult.dropsPuddle) {
@@ -716,10 +916,11 @@ export default function App() {
             });
           }
 
-          // Sheriff summoned Deputy Officer!
+          // Sheriff sounded whistle and summoned Deputy Officer!
           if (aiResult.requestsOfficerBackup) {
             spawnEnemy('officer');
-            showNotification('Sheriff Abigail sounded the county alarm! Deputy Officer deployed!');
+            sounds.playWhistle();
+            showNotification('Sheriff Abigail deployed a Deputy Officer! Backup arrived!');
           }
 
           if (enemy.speechTimer <= 0 && Math.random() < 0.003) {
@@ -730,15 +931,30 @@ export default function App() {
             }
           }
 
-          // Enemy contact with player: inflicts contact debuff!
+          // Enemy contact with player: inflicts contact debuff or instant game over for shiny!
           if (
             player.invincibleTimer <= 0 &&
             checkCircleOverlap(player.x, player.y, player.radius, enemy.x, enemy.y, enemy.radius)
           ) {
+            if (enemy.isShiny) {
+              // Rare shiny catch is instant game over!
+              triggerGameOver(enemy.archetype, true);
+              break;
+            }
+
             player.hp -= 1;
-            player.invincibleTimer = 1.0;
+            player.invincibleTimer = 1.0 * debuffStats.invulnDurationMultiplier;
             setHp(player.hp);
             sounds.playPlayerHurt();
+
+            // Disarm on hit debuff: Knocks gun away
+            if (debuffStats.disarmOnHit && player.activeWeaponKey !== 'pistol') {
+              player.activeWeaponKey = 'pistol';
+              player.ammo = -1;
+              setActiveWeaponKey('pistol');
+              setAmmo(-1);
+              showNotification('Disarmed! Weapon knocked from your grasp!');
+            }
 
             // Permanent archetype contact debuff roll
             const newDebuff = rollArchetypeDebuff(enemy.archetype, player.activeDebuffs);
@@ -749,19 +965,24 @@ export default function App() {
             }
 
             const hitAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-            const knockbackMultiplier = debuffStats.knockbackTakenMultiplier;
-            player.vx = Math.cos(hitAngle) * 380 * knockbackMultiplier;
-            player.vy = Math.sin(hitAngle) * 380 * knockbackMultiplier;
+            if (debuffStats.inverseKnockback) {
+              // Collar Snatch: Yanked inward toward the attacker!
+              player.vx = -Math.cos(hitAngle) * 280;
+              player.vy = -Math.sin(hitAngle) * 280;
+            } else {
+              const knockbackMultiplier = debuffStats.knockbackTakenMultiplier;
+              player.vx = Math.cos(hitAngle) * 380 * knockbackMultiplier;
+              player.vy = Math.sin(hitAngle) * 380 * knockbackMultiplier;
+            }
 
             if (player.hp <= 0) {
-              setCaughtByArchetype(enemy.archetype);
               triggerGameOver(enemy.archetype);
               break;
             }
           }
         }
 
-        // 5. Update Bullets & Wall Collisions (Delinquent bat shield)
+        // 5. Update Bullets & Collisions
         const nextBullets: BulletState[] = [];
         for (const b of bulletsRef.current) {
           b.x += b.vx * dt;
@@ -786,9 +1007,9 @@ export default function App() {
                 if (enemy.archetype === 'delinquent') {
                   const bulletAngle = Math.atan2(b.vy, b.vx);
                   const angleDiff = Math.abs(bulletAngle - (enemy.angle + Math.PI));
-                  if (angleDiff < 1.2 || angleDiff > Math.PI * 2 - 1.2) {
-                    damageToApply *= 0.4; // bat blocks 60% damage!
-                    // Clank spark particle
+                  const blockArc = activeUpgradesRef.current.includes('delinquent_reinforced_shinai') ? 1.4 : 1.1;
+                  if (angleDiff < blockArc || angleDiff > Math.PI * 2 - blockArc) {
+                    damageToApply *= 0.35;
                     for (let sp = 0; sp < 6; sp++) {
                       particlesRef.current.push({
                         x: b.x,
@@ -802,6 +1023,11 @@ export default function App() {
                       });
                     }
                   }
+                }
+
+                // Officer riot shield deflect
+                if (enemy.archetype === 'officer' && activeUpgradesRef.current.includes('officer_riot_poise')) {
+                  damageToApply *= 0.75;
                 }
 
                 enemy.hp -= damageToApply;
@@ -861,13 +1087,44 @@ export default function App() {
         }
         bulletsRef.current = nextBullets;
 
-        // 6. Defeat
+        // 6. Defeat Handling & Tiny Heart EXP Drops
         const survivingEnemies: EnemyState[] = [];
         for (const enemy of enemiesRef.current) {
           if (enemy.hp <= 0) {
             sounds.playDefeatEnemy();
             defeatedCountRef.current += 1;
             setDefeatedCount(defeatedCountRef.current);
+
+            // Defeated enemies burst into a shower of tiny sparkling collectible Hearts (EXP)!
+            const heartDropCount = enemy.isShiny ? 8 : 2 + Math.floor(Math.random() * 2);
+            for (let h = 0; h < heartDropCount; h++) {
+              const hAngle = Math.random() * Math.PI * 2;
+              const hSpeed = 40 + Math.random() * 90;
+              heartsRef.current.push({
+                id: heartIdCounter.current++,
+                x: enemy.x,
+                y: enemy.y,
+                vx: Math.cos(hAngle) * hSpeed,
+                vy: Math.sin(hAngle) * hSpeed,
+                bobTimer: Math.random() * 10,
+                value: 1,
+                color: enemy.isShiny ? '#fde047' : '#f43f5e',
+                scale: 0.9 + Math.random() * 0.35,
+              });
+            }
+
+            // Bounty magnet debuff: pulls nearby chasers toward player
+            if (debuffStats.bountyMagnet) {
+              for (const chaser of enemiesRef.current) {
+                if (chaser.id !== enemy.id && distanceSq(enemy.x, enemy.y, chaser.x, chaser.y) < 350 * 350) {
+                  const toPlayerX = player.x - chaser.x;
+                  const toPlayerY = player.y - chaser.y;
+                  const d = Math.hypot(toPlayerX, toPlayerY) || 1;
+                  chaser.x += (toPlayerX / d) * 70;
+                  chaser.y += (toPlayerY / d) * 70;
+                }
+              }
+            }
 
             for (let i = 0; i < 12; i++) {
               particlesRef.current.push({
@@ -891,9 +1148,82 @@ export default function App() {
         }
         enemiesRef.current = survivingEnemies;
 
-        // 7. Pickups
+        // 7. Heart Pickup Physics, Magnetism & Fascination Level-Up
+        const magnetRadiusSq = 140 * 140;
+        const collectRadiusSq = (player.radius + 15) * (player.radius + 15);
+        const survivingHearts: HeartPickup[] = [];
+        let expGainedThisFrame = 0;
+
+        for (const heart of heartsRef.current) {
+          heart.vx *= Math.max(0, 1 - dt * 4);
+          heart.vy *= Math.max(0, 1 - dt * 4);
+          heart.x += heart.vx * dt;
+          heart.y += heart.vy * dt;
+
+          const distSqToPlayer = distanceSq(player.x, player.y, heart.x, heart.y);
+
+          if (distSqToPlayer <= collectRadiusSq) {
+            // Heart collected!
+            expGainedThisFrame += heart.value;
+            sounds.playHeartCollect();
+
+            for (let s = 0; s < 4; s++) {
+              particlesRef.current.push({
+                x: heart.x,
+                y: heart.y,
+                vx: (Math.random() - 0.5) * 110,
+                vy: (Math.random() - 0.5) * 110,
+                color: heart.color || '#f472b6',
+                radius: 2 + Math.random() * 2,
+                life: 0.25,
+                maxLife: 0.25,
+              });
+            }
+          } else {
+            // Magnet pull toward player if within range
+            if (distSqToPlayer < magnetRadiusSq) {
+              const d = Math.sqrt(distSqToPlayer) || 1;
+              const pullSpeed = 420;
+              heart.x += ((player.x - heart.x) / d) * pullSpeed * dt;
+              heart.y += ((player.y - heart.y) / d) * pullSpeed * dt;
+            }
+            survivingHearts.push(heart);
+          }
+        }
+        heartsRef.current = survivingHearts;
+
+        // Process EXP accumulation & Fascination Surge Level-Up
+        if (expGainedThisFrame > 0) {
+          adorationExpRef.current += expGainedThisFrame;
+          setAdorationExp(adorationExpRef.current);
+
+          const currentReq = getExpForLevel(adorationLevelRef.current);
+          if (adorationExpRef.current >= currentReq) {
+            adorationExpRef.current -= currentReq;
+            adorationLevelRef.current += 1;
+            setAdorationLevel(adorationLevelRef.current);
+            setAdorationExp(adorationExpRef.current);
+            const nextReq = getExpForLevel(adorationLevelRef.current);
+            setExpToNextLevel(nextReq);
+
+            sounds.playLevelUp();
+            const rolledUpgrades = rollEnemyUpgrades(activeUpgradesRef.current, 3);
+            setPendingLevelUpUpgrades(rolledUpgrades);
+            setGameState('levelup');
+          }
+        }
+
+        // 8. Weapon Pickups (with optional pickup delay citation debuff)
         pickupsRef.current = pickupsRef.current.filter((pickup) => {
           if (checkCircleOverlap(player.x, player.y, player.radius, pickup.x, pickup.y, pickup.radius)) {
+            if (debuffStats.pickupDelay > 0) {
+              const currentHover = (pickupHoverTimersRef.current.get(pickup.id) || 0) + dt;
+              pickupHoverTimersRef.current.set(pickup.id, currentHover);
+              if (currentHover < debuffStats.pickupDelay) {
+                return true; // Still inspecting citation!
+              }
+            }
+
             sounds.playPickup();
             const def = WEAPON_DEFS[pickup.weaponKey] || WEAPON_DEFS.pistol;
             player.activeWeaponKey = pickup.weaponKey;
@@ -905,12 +1235,15 @@ export default function App() {
               GAME_TEXT.weapons[pickup.weaponKey as keyof typeof GAME_TEXT.weapons]?.pickupNotification ||
               `Equipped ${def.name}!`;
             showNotification(pickupMsg);
+            pickupHoverTimersRef.current.delete(pickup.id);
             return false;
+          } else {
+            pickupHoverTimersRef.current.delete(pickup.id);
+            return true;
           }
-          return true;
         });
 
-        // 8. Particles
+        // 9. Particle Lifecycles
         particlesRef.current = particlesRef.current
           .map((p) => ({
             ...p,
@@ -937,6 +1270,9 @@ export default function App() {
         bullets: bulletsRef.current,
         pickups: pickupsRef.current,
         puddles: puddlesRef.current,
+        hearts: heartsRef.current,
+        adorationLevel: adorationLevelRef.current,
+        activeUpgrades: activeUpgradesRef.current,
         particles: particlesRef.current,
         mapEnv: env,
         cars: carsRef.current,
@@ -950,35 +1286,19 @@ export default function App() {
       drawCars(renderCtx);
       drawCivilians(renderCtx);
       drawWeaponPickups(renderCtx);
-      drawPlayer(renderCtx);
+      drawHearts(renderCtx); // Sparkling bouncing heart EXP drops!
+      drawPlayer(renderCtx); // Cute femboy with dynamic Charm Evolutions!
       drawEnemies(renderCtx);
       drawBullets(renderCtx);
       drawParticles(renderCtx);
       drawTreeCanopies(renderCtx);
-      drawForestFog(renderCtx); // Atmospheric drifting mist!
+      drawForestFog(renderCtx); // Atmospheric drifting mist in forest!
 
-      if (gameState === 'playing' || gameState === 'paused') {
+      if (gameState === 'playing' || gameState === 'paused' || gameState === 'levelup') {
         drawMinimap(renderCtx);
       }
 
       animFrameId.current = requestAnimationFrame(gameLoop);
-    };
-
-    const triggerGameOver = (catcher: ArchetypeId) => {
-      sounds.playGameOver();
-      setCaughtByArchetype(catcher);
-      setGameState('gameover');
-      const finalTime = simTimeRef.current;
-      setSurvivalTime(finalTime);
-      setBestTime((prev) => {
-        const next = Math.max(prev, finalTime);
-        try {
-          localStorage.setItem('femboy_survival_best_time', next.toString());
-        } catch {
-          // ignore
-        }
-        return next;
-      });
     };
 
     animFrameId.current = requestAnimationFrame(gameLoop);
@@ -1003,10 +1323,11 @@ export default function App() {
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           onStart={() => startGame(selectedMap)}
+          onOpenManual={() => setIsDebuffManualOpen(true)}
         />
       )}
 
-      {gameState === 'playing' && (
+      {(gameState === 'playing' || gameState === 'paused' || gameState === 'levelup') && (
         <GameHud
           survivalTime={survivalTime}
           bestTime={bestTime}
@@ -1018,9 +1339,14 @@ export default function App() {
           notification={notification}
           activeDebuffs={activeDebuffs}
           isMuted={isMuted}
+          adorationLevel={adorationLevel}
+          adorationExp={adorationExp}
+          expToNextLevel={expToNextLevel}
+          activeUpgradesCount={activeEnemyUpgrades.length}
           onToggleMute={handleToggleMute}
           onPause={() => setGameState('paused')}
           onRestart={() => startGame(selectedMap)}
+          onOpenManual={() => setIsDebuffManualOpen(true)}
         />
       )}
 
@@ -1031,6 +1357,16 @@ export default function App() {
           onMainMenu={() => setGameState('title')}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
+          onOpenManual={() => setIsDebuffManualOpen(true)}
+        />
+      )}
+
+      {/* Bullet-Heaven Style Enemy Upgrade Modal */}
+      {gameState === 'levelup' && pendingLevelUpUpgrades && (
+        <LevelUpModal
+          currentLevel={adorationLevel}
+          upgrades={pendingLevelUpUpgrades}
+          onSelectUpgrade={handleSelectUpgrade}
         />
       )}
 
@@ -1044,11 +1380,19 @@ export default function App() {
           caughtByArchetype={caughtByArchetype}
           activeDebuffs={activeDebuffs}
           isNewBest={survivalTime >= bestTime && survivalTime > 0}
+          isShiny={isShinyCaught}
           onRestart={() => startGame(selectedMap)}
           onChangeArea={() => setGameState('title')}
           onMainMenu={() => setGameState('title')}
+          onOpenManual={() => setIsDebuffManualOpen(true)}
         />
       )}
+
+      {/* Debuff & Enemy Upgrade Compendium Modal */}
+      <DebuffManualModal
+        isOpen={isDebuffManualOpen}
+        onClose={() => setIsDebuffManualOpen(false)}
+      />
     </div>
   );
 }

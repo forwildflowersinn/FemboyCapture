@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan to fix Sheriff cone dimensions, enforce a single active Sheriff limit, remove Officer cones, overhaul Suburban Home breach pathing with player-buildable barricades that enemies can smash through, rework Shinies into true aggressive golden mini-bosses with unique attacks, and thoroughly audit and wire all 48 archetype debuffs and 24 enemy upgrades.",
+  "updatedAt": "2026-10-19T18:19:34.492898332Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

@@ -14,6 +14,10 @@ interface GameHudProps {
   notification: string | null;
   activeDebuffs: ActiveDebuff[];
   isMuted: boolean;
+  adorationLevel: number;
+  adorationExp: number;
+  expToNextLevel: number;
+  activeUpgradesCount?: number;
   onToggleMute: () => void;
   onPause: () => void;
   onRestart: () => void;
@@ -31,6 +35,10 @@ export const GameHud: React.FC<GameHudProps> = ({
   notification,
   activeDebuffs,
   isMuted,
+  adorationLevel,
+  adorationExp,
+  expToNextLevel,
+  activeUpgradesCount = 0,
   onToggleMute,
   onPause,
   onRestart,
@@ -80,6 +88,14 @@ export const GameHud: React.FC<GameHudProps> = ({
               <div className="bg-rose-950/80 border border-rose-500/40 rounded-lg px-2.5 py-1 text-xs font-bold text-rose-300 inline-flex items-center gap-1 shadow-md">
                 <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
                 <span>{activeDebuffs.length} Debuff{activeDebuffs.length > 1 ? 's' : ''}</span>
+              </div>
+            )}
+
+            {/* Active enemy evolutions badge */}
+            {activeUpgradesCount > 0 && (
+              <div className="bg-amber-950/80 border border-amber-500/40 rounded-lg px-2.5 py-1 text-xs font-bold text-amber-300 inline-flex items-center gap-1 shadow-md">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>{activeUpgradesCount} Evolution{activeUpgradesCount > 1 ? 's' : ''}</span>
               </div>
             )}
 
@@ -133,13 +149,34 @@ export const GameHud: React.FC<GameHudProps> = ({
           )}
         </div>
 
-        {/* Center: Notification Toast */}
-        {notification && (
-          <div className="pointer-events-none transition-all animate-bounce bg-pink-500/90 text-white font-bold text-xs sm:text-sm px-4 py-1.5 rounded-full shadow-lg border border-pink-300 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-yellow-300" />
-            {notification}
+        {/* Center: Adoration EXP Bar & Notification Toast */}
+        <div className="flex flex-col items-center gap-1.5 max-w-xs sm:max-w-sm w-full mx-2">
+          {/* Adoration Level & Heart EXP Progress */}
+          <div className="w-full bg-slate-950/90 border border-pink-500/40 rounded-xl px-3 py-1.5 shadow-lg backdrop-blur-sm flex flex-col gap-1">
+            <div className="flex items-center justify-between text-[10px] font-black tracking-wider uppercase">
+              <span className="text-pink-400 flex items-center gap-1">
+                <Heart className="w-3 h-3 fill-pink-500 text-pink-400" />
+                <span>ADORATION LV. {adorationLevel}</span>
+              </span>
+              <span className="text-slate-400 font-mono tabular-nums">
+                {adorationExp} / {expToNextLevel} HEARTS
+              </span>
+            </div>
+            <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden border border-pink-900/40">
+              <div
+                className="h-full bg-gradient-to-r from-pink-500 via-rose-400 to-pink-300 rounded-full transition-all duration-200"
+                style={{ width: `${Math.min(100, Math.max(0, (adorationExp / expToNextLevel) * 100))}%` }}
+              />
+            </div>
           </div>
-        )}
+
+          {notification && (
+            <div className="pointer-events-none transition-all animate-bounce bg-pink-500/90 text-white font-bold text-xs sm:text-sm px-4 py-1.5 rounded-full shadow-lg border border-pink-300 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-yellow-300" />
+              {notification}
+            </div>
+          )}
+        </div>
 
         {/* Right: Quick action buttons */}
         <div className="pointer-events-auto flex items-center gap-2">

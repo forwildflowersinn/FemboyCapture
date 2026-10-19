@@ -8,6 +8,7 @@ import {
   MapEnvironment,
   MovingCar,
   Civilian,
+  HeartPickup,
 } from './logic.ts';
 import { GAME_TEXT, type ArchetypeKey } from '../gameText.ts';
 
@@ -22,6 +23,9 @@ export interface RenderContext {
   bullets: BulletState[];
   pickups: WeaponPickupState[];
   puddles: HazardPuddle[];
+  hearts?: HeartPickup[];
+  adorationLevel?: number;
+  activeUpgrades?: string[];
   particles: {
     x: number;
     y: number;
@@ -51,35 +55,262 @@ export function drawArena(r: RenderContext) {
   ctx.translate(-cameraX, -cameraY);
 
   if (mapEnv.id === 'forest') {
-    // --- FOREST ENVIRONMENT ---
-    ctx.fillStyle = '#0d2216';
+    // --- RICH NATURAL ENCHANTED FOREST ENVIRONMENT ---
+    // Deep mossy loam and pine-needle forest floor
+    ctx.fillStyle = '#08170d';
     ctx.fillRect(0, 0, arenaWidth, arenaHeight);
 
-    // Winding dirt trails
-    ctx.strokeStyle = '#281a10';
-    ctx.lineWidth = 160;
+    // Organic mossy earth patches
+    const mossPatches = [
+      { x: 300, y: 400, r: 240, c: '#0f2918' },
+      { x: 900, y: 800, r: 320, c: '#0d2215' },
+      { x: 1700, y: 600, r: 280, c: '#12331f' },
+      { x: 500, y: 1600, r: 300, c: '#0f2918' },
+      { x: 1300, y: 1500, r: 350, c: '#0e2417' },
+      { x: 2100, y: 1400, r: 260, c: '#143822' },
+    ];
+    for (const mp of mossPatches) {
+      const grad = ctx.createRadialGradient(mp.x, mp.y, 40, mp.x, mp.y, mp.r);
+      grad.addColorStop(0, mp.c);
+      grad.addColorStop(1, '#08170d');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(mp.x, mp.y, mp.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Natural Forest Stream / Creek (Silvery dark cyan with gentle current ripples)
+    ctx.save();
+    ctx.strokeStyle = '#0e3a40';
+    ctx.lineWidth = 110;
+    ctx.beginPath();
+    ctx.moveTo(100, 200);
+    ctx.quadraticCurveTo(600, 600, 750, 1100);
+    ctx.quadraticCurveTo(900, 1600, 400, 2200);
+    ctx.stroke();
+
+    // Creek water center flow
+    ctx.strokeStyle = '#155e75';
+    ctx.lineWidth = 65;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(103, 232, 249, 0.3)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(150, 250);
+    ctx.quadraticCurveTo(610, 620, 755, 1100);
+    ctx.stroke();
+
+    // Stream wooden footbridge & stepping stones
+    const stones = [
+      { x: 740, y: 1060 },
+      { x: 760, y: 1090 },
+      { x: 735, y: 1120 },
+    ];
+    for (const st of stones) {
+      ctx.fillStyle = '#64748b';
+      ctx.beginPath();
+      ctx.ellipse(st.x, st.y, 14, 10, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Main Winding Dirt & Cobblestone Trail
+    ctx.save();
+    // Rough pebble trail outer border
+    ctx.strokeStyle = '#27170c';
+    ctx.lineWidth = 175;
     ctx.beginPath();
     ctx.moveTo(200, 300);
     ctx.quadraticCurveTo(800, 900, 1400, 700);
     ctx.quadraticCurveTo(2000, 500, 2400, 1600);
     ctx.stroke();
 
-    ctx.strokeStyle = '#342215';
-    ctx.lineWidth = 100;
-    ctx.beginPath();
-    ctx.moveTo(600, 2000);
-    ctx.quadraticCurveTo(1200, 1500, 2000, 1800);
+    // Main beaten earth path
+    ctx.strokeStyle = '#382313';
+    ctx.lineWidth = 135;
     ctx.stroke();
 
-    // Grass texture
-    ctx.fillStyle = 'rgba(74, 222, 128, 0.08)';
-    for (let gx = 100; gx < arenaWidth; gx += 140) {
-      for (let gy = 100; gy < arenaHeight; gy += 140) {
-        ctx.fillRect(gx, gy, 8, 4);
-      }
+    // Fine gravel center track
+    ctx.strokeStyle = '#452c18';
+    ctx.lineWidth = 85;
+    ctx.stroke();
+
+    // Secondary woodland footpath to southern campsite
+    ctx.strokeStyle = '#2f1c0f';
+    ctx.lineWidth = 90;
+    ctx.beginPath();
+    ctx.moveTo(600, 2000);
+    ctx.quadraticCurveTo(1200, 1450, 2000, 1800);
+    ctx.stroke();
+
+    // Cobblestone stepping stones embedded along the trail
+    for (let tx = 250; tx < arenaWidth - 250; tx += 95) {
+      const stoneY = 700 + Math.sin(tx * 0.003) * 220;
+      ctx.fillStyle = tx % 2 === 0 ? '#64748b' : '#475569';
+      ctx.beginPath();
+      ctx.ellipse(tx + (tx % 30), stoneY + (tx % 20), 12, 8, (tx % 5) * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // --- CAMPSITE CLEARING AT (1400, 1050) ---
+    // Campfire clearing ground
+    ctx.fillStyle = '#22150a';
+    ctx.beginPath();
+    ctx.ellipse(1400, 1050, 120, 80, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Split-log campsite benches
+    ctx.fillStyle = '#5c3514';
+    ctx.beginPath();
+    ctx.roundRect(1320, 990, 70, 16, 6);
+    ctx.roundRect(1410, 990, 70, 16, 6);
+    ctx.roundRect(1340, 1100, 120, 16, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#381e09';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Circular stone campfire ring
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(1400, 1050, 22, 0, Math.PI * 2);
+    ctx.fill();
+
+    const ringStones = 8;
+    for (let rs = 0; rs < ringStones; rs++) {
+      const stoneAngle = (rs * Math.PI * 2) / ringStones;
+      const sx = 1400 + Math.cos(stoneAngle) * 22;
+      const sy = 1050 + Math.sin(stoneAngle) * 22;
+      ctx.fillStyle = rs % 2 === 0 ? '#94a3b8' : '#64748b';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
-    // Bushes
+    // Flickering campfire flame & embers
+    const flameFlicker = Math.sin(r.gameTime * 12) * 2;
+    const fireGrad = ctx.createRadialGradient(1400, 1050, 3, 1400, 1050, 48 + flameFlicker);
+    fireGrad.addColorStop(0, 'rgba(254, 240, 138, 0.85)');
+    fireGrad.addColorStop(0.35, 'rgba(249, 115, 22, 0.6)');
+    fireGrad.addColorStop(0.7, 'rgba(239, 68, 68, 0.25)');
+    fireGrad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+    ctx.fillStyle = fireGrad;
+    ctx.beginPath();
+    ctx.arc(1400, 1050, 48 + flameFlicker, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Charred crossed logs
+    ctx.strokeStyle = '#1c1917';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(1392, 1042);
+    ctx.lineTo(1408, 1058);
+    ctx.moveTo(1392, 1058);
+    ctx.lineTo(1408, 1042);
+    ctx.stroke();
+
+    // Campfire ember sparks
+    for (let em = 0; em < 4; em++) {
+      const sparkY = 1050 - ((r.gameTime * 25 + em * 14) % 28);
+      const sparkX = 1400 + Math.sin(r.gameTime * 6 + em) * 8;
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(sparkX, sparkY, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Carved Trail Signpost
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(1510, 1020, 8, 36);
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.roundRect(1485, 1005, 58, 20, 3);
+    ctx.fill();
+    ctx.strokeStyle = '#451a03';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fef08a';
+    ctx.font = 'bold 7px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PINES TRAIL', 1514, 1018);
+
+    // --- BIOLUMINESCENT FAIRY MUSHROOM CLUSTERS ---
+    const fairyMushrooms = [
+      { x: 380, y: 350, c: '#2dd4bf', cap: '#0d9488' },
+      { x: 1220, y: 440, c: '#f472b6', cap: '#db2777' },
+      { x: 1850, y: 580, c: '#38bdf8', cap: '#0284c7' },
+      { x: 580, y: 1450, c: '#f472b6', cap: '#db2777' },
+      { x: 1100, y: 1700, c: '#2dd4bf', cap: '#0d9488' },
+      { x: 1980, y: 1500, c: '#a78bfa', cap: '#7c3aed' },
+    ];
+    for (const fm of fairyMushrooms) {
+      // Ambient radial glow
+      const mGlow = ctx.createRadialGradient(fm.x, fm.y, 2, fm.x, fm.y, 22);
+      mGlow.addColorStop(0, fm.c + '55');
+      mGlow.addColorStop(1, fm.c + '00');
+      ctx.fillStyle = mGlow;
+      ctx.beginPath();
+      ctx.arc(fm.x, fm.y, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Mushroom cap 1
+      ctx.fillStyle = fm.cap;
+      ctx.beginPath();
+      ctx.ellipse(fm.x - 4, fm.y, 5, 4, 0, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(fm.x - 5, fm.y, 2, 4);
+
+      // Mushroom cap 2
+      ctx.fillStyle = fm.c;
+      ctx.beginPath();
+      ctx.ellipse(fm.x + 3, fm.y + 2, 6, 4.5, 0, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(fm.x + 2, fm.y + 2, 2.5, 4);
+    }
+
+    // Lush Wild Woodland Ferns & Bluebells
+    const flowerPatches = [
+      { x: 450, y: 490 },
+      { x: 820, y: 600 },
+      { x: 1350, y: 780 },
+      { x: 1720, y: 480 },
+      { x: 950, y: 1300 },
+      { x: 1650, y: 1380 },
+    ];
+    for (const fp of flowerPatches) {
+      // Fern leaves
+      ctx.strokeStyle = '#15803d';
+      ctx.lineWidth = 2;
+      for (let f = 0; f < 5; f++) {
+        const fAngle = (f * Math.PI) / 4 - Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(fp.x, fp.y);
+        ctx.lineTo(fp.x + Math.cos(fAngle) * 14, fp.y + Math.sin(fAngle) * 14);
+        ctx.stroke();
+      }
+      // Bluebell dots
+      ctx.fillStyle = '#60a5fa';
+      ctx.beginPath();
+      ctx.arc(fp.x - 6, fp.y - 8, 2.5, 0, Math.PI * 2);
+      ctx.arc(fp.x + 5, fp.y - 10, 2.5, 0, Math.PI * 2);
+      ctx.arc(fp.x, fp.y - 14, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Natural Bushes with multi-shaded leaves & berries
     for (const b of mapEnv.bushes) {
       ctx.fillStyle = '#14532d';
       ctx.beginPath();
@@ -88,13 +319,20 @@ export function drawArena(r: RenderContext) {
 
       ctx.fillStyle = '#16a34a';
       ctx.beginPath();
-      ctx.arc(b.x - b.radius * 0.25, b.y - b.radius * 0.25, b.radius * 0.6, 0, Math.PI * 2);
+      ctx.arc(b.x - b.radius * 0.25, b.y - b.radius * 0.25, b.radius * 0.65, 0, Math.PI * 2);
       ctx.fill();
 
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(b.x + b.radius * 0.2, b.y - b.radius * 0.2, b.radius * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Red sweet wild berries
       ctx.fillStyle = '#f43f5e';
       ctx.beginPath();
-      ctx.arc(b.x + b.radius * 0.3, b.y - b.radius * 0.2, 4, 0, Math.PI * 2);
-      ctx.arc(b.x - b.radius * 0.2, b.y + b.radius * 0.3, 4, 0, Math.PI * 2);
+      ctx.arc(b.x + b.radius * 0.35, b.y - b.radius * 0.2, 3.5, 0, Math.PI * 2);
+      ctx.arc(b.x - b.radius * 0.3, b.y + b.radius * 0.25, 3.5, 0, Math.PI * 2);
+      ctx.arc(b.x, b.y + b.radius * 0.4, 3, 0, Math.PI * 2);
       ctx.fill();
     }
   } else if (mapEnv.id === 'home') {
@@ -320,56 +558,395 @@ export function drawArena(r: RenderContext) {
       }
     }
   } else {
-    // --- EXPANDED CITY METROPOLIS ---
+    // --- VIBRANT EXPANDED CITY METROPOLIS ---
+    // Deep textured asphalt road surface
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, arenaWidth, arenaHeight);
 
-    // Sidewalk plazas
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(0, 720, arenaWidth, 120);
-    ctx.fillRect(0, 1180, arenaWidth, 240);
-    ctx.fillRect(0, 1780, arenaWidth, 120);
+    // Concrete Sidewalk Plazas with Curb Bevels & Tile Seams
+    const sidewalkBands = [
+      { y: 680, h: 160 },
+      { y: 1120, h: 300 },
+      { y: 1720, h: 140 },
+    ];
+    for (const sb of sidewalkBands) {
+      // Concrete base
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(0, sb.y, arenaWidth, sb.h);
 
-    // Wide Boulevards
-    ctx.fillStyle = '#1e293b';
+      // Granite curb stone borders
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(0, sb.y, arenaWidth, 6);
+      ctx.fillRect(0, sb.y + sb.h - 6, arenaWidth, 6);
+
+      // Concrete paver grid lines
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+      ctx.lineWidth = 1;
+      for (let px = 0; px < arenaWidth; px += 48) {
+        ctx.beginPath();
+        ctx.moveTo(px, sb.y);
+        ctx.lineTo(px, sb.y + sb.h);
+        ctx.stroke();
+      }
+
+      // Yellow Tactile Paving Warning Strips at Road Crossing Corners
+      for (let tx = 800; tx < arenaWidth; tx += 950) {
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(tx, sb.y + 1, 90, 8);
+        ctx.fillRect(tx, sb.y + sb.h - 9, 90, 8);
+      }
+    }
+
+    // Wide Multi-Lane Boulevards (North Avenue & South Avenue)
+    ctx.fillStyle = '#111827';
     ctx.fillRect(0, 840, arenaWidth, 280);
-    ctx.fillRect(0, 1420, arenaWidth, 280);
+    ctx.fillRect(0, 1420, arenaWidth, 300);
 
-    // Yellow Lane dividers
+    // Double Solid Yellow Lane Dividers
     ctx.strokeStyle = '#fef08a';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([35, 25]);
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(0, 980);
-    ctx.lineTo(arenaWidth, 980);
-    ctx.moveTo(0, 1560);
-    ctx.lineTo(arenaWidth, 1560);
+    ctx.moveTo(0, 977);
+    ctx.lineTo(arenaWidth, 977);
+    ctx.moveTo(0, 983);
+    ctx.lineTo(arenaWidth, 983);
+    ctx.moveTo(0, 1567);
+    ctx.lineTo(arenaWidth, 1567);
+    ctx.moveTo(0, 1573);
+    ctx.lineTo(arenaWidth, 1573);
+    ctx.stroke();
+
+    // White Dashed Lane Dividers
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([28, 22]);
+    ctx.beginPath();
+    ctx.moveTo(0, 910);
+    ctx.lineTo(arenaWidth, 910);
+    ctx.moveTo(0, 1050);
+    ctx.lineTo(arenaWidth, 1050);
+    ctx.moveTo(0, 1490);
+    ctx.lineTo(arenaWidth, 1490);
+    ctx.moveTo(0, 1650);
+    ctx.lineTo(arenaWidth, 1650);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Crosswalks
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-    for (let cw = 1000; cw < 1250; cw += 32) {
-      ctx.fillRect(cw, 840, 18, 280);
-      ctx.fillRect(cw, 1420, 18, 280);
+    // Solid White Stop Bars & Bold Zebra Crosswalks
+    const crosswalkLocations = [850, 1850, 2850];
+    for (const cx of crosswalkLocations) {
+      // Stop bars
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(cx - 30, 840, 8, 280);
+      ctx.fillRect(cx - 30, 1420, 8, 300);
+
+      // Zebra stripes
+      for (let zx = cx; zx < cx + 110; zx += 24) {
+        ctx.fillRect(zx, 840, 14, 280);
+        ctx.fillRect(zx, 1420, 14, 300);
+      }
+    }
+
+    // Cast-iron Manhole Covers & Storm Drain Grates
+    const manholes = [
+      { x: 500, y: 920 },
+      { x: 1400, y: 1040 },
+      { x: 2300, y: 920 },
+      { x: 600, y: 1520 },
+      { x: 1600, y: 1620 },
+      { x: 2500, y: 1520 },
+    ];
+    for (const mh of manholes) {
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.arc(mh.x, mh.y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(mh.x, mh.y, 9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Street Furniture on Central Plaza (y: 1120-1420)
+    // 1. Bus Stop Shelters
+    const busShelters = [{ x: 1100, y: 1160 }, { x: 2100, y: 1160 }];
+    for (const bs of busShelters) {
+      // Glass shelter frame
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(bs.x - 35, bs.y - 15, 70, 30);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bs.x - 35, bs.y - 15, 70, 30);
+      // Tinted glass back
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+      ctx.fillRect(bs.x - 33, bs.y - 13, 66, 26);
+      // Lit transit map
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(bs.x - 20, bs.y - 8, 14, 16);
+      // Bench
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(bs.x - 15, bs.y + 4, 30, 6);
+    }
+
+    // 2. Japanese-style Beverage Vending Machines
+    const vendingMachines = [
+      { x: 650, y: 1150, c: '#ef4444', label: 'COLA' },
+      { x: 700, y: 1150, c: '#06b6d4', label: 'TEA' },
+      { x: 1750, y: 1150, c: '#ec4899', label: 'MILK' },
+    ];
+    for (const vm of vendingMachines) {
+      ctx.fillStyle = vm.c;
+      ctx.beginPath();
+      ctx.roundRect(vm.x - 12, vm.y - 18, 24, 36, 3);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Lit display window
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.fillRect(vm.x - 9, vm.y - 14, 18, 14);
+
+      // Lit buttons
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(vm.x - 4, vm.y + 6, 2, 0, Math.PI * 2);
+      ctx.arc(vm.x + 4, vm.y + 6, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Fire Hydrants
+    const hydrants = [{ x: 450, y: 1140 }, { x: 1550, y: 1140 }, { x: 2650, y: 1140 }];
+    for (const hy of hydrants) {
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.roundRect(hy.x - 6, hy.y - 10, 12, 20, 4);
+      ctx.fill();
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(hy.x - 8, hy.y - 4, 16, 4);
+    }
+
+    // 4. Streetlamps casting warm lighting pools onto roads
+    const streetlamps = [
+      { x: 300, y: 840 },
+      { x: 1000, y: 840 },
+      { x: 1700, y: 840 },
+      { x: 2400, y: 840 },
+      { x: 600, y: 1420 },
+      { x: 1300, y: 1420 },
+      { x: 2000, y: 1420 },
+      { x: 2700, y: 1420 },
+    ];
+    for (const sl of streetlamps) {
+      // Warm circular light pool
+      const slGrad = ctx.createRadialGradient(sl.x, sl.y, 10, sl.x, sl.y, 90);
+      slGrad.addColorStop(0, 'rgba(254, 240, 138, 0.35)');
+      slGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+      ctx.fillStyle = slGrad;
+      ctx.beginPath();
+      ctx.arc(sl.x, sl.y, 90, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lamp pole base
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.arc(sl.x, sl.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(sl.x, sl.y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  // --- DRAW WALLS & FURNITURE OBSTACLES ---
+  // --- DRAW WALLS & STOREFRONTS ---
   for (const w of mapEnv.walls) {
     if (mapEnv.id === 'city') {
+      // REAL ARCHITECTURAL METROPOLIS STOREFRONTS & BUILDINGS
+      ctx.save();
+      // Main structure block
       ctx.fillStyle = '#0b0f19';
       ctx.fillRect(w.x, w.y, w.w, w.h);
-      ctx.strokeStyle = '#ec4899';
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = '#ec4899';
-      ctx.shadowBlur = 8;
-      ctx.strokeRect(w.x, w.y, w.w, w.h);
-      ctx.shadowBlur = 0;
 
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(w.x + 35, w.y + 35, 70, 45);
-      ctx.fillRect(w.x + 140, w.y + 60, 90, 50);
+      // Neon Building Perimeter Roof Line
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(w.x, w.y, w.w, w.h);
+
+      // Upper floor lit windows grid
+      const winW = 34;
+      const winH = 26;
+      for (let wx = w.x + 35; wx < w.x + w.w - 50; wx += 60) {
+        for (let wy = w.y + 45; wy < w.y + w.h - 140; wy += 55) {
+          const isLit = (Math.floor(wx / 60) + Math.floor(wy / 55)) % 3 !== 0;
+          ctx.fillStyle = isLit ? 'rgba(254, 240, 138, 0.55)' : 'rgba(30, 41, 59, 0.8)';
+          ctx.fillRect(wx, wy, winW, winH);
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(wx, wy, winW, winH);
+        }
+      }
+
+      // Ground Floor Vibrant Storefronts on the street-facing side
+      const isNorthBlock = w.y < 1000;
+      const streetY = isNorthBlock ? w.y + w.h - 110 : w.y;
+
+      if (w.label === 'Plaza Tower A') {
+        // CHERRY SWEET BOUTIQUE
+        // Pink & White Striped Awning
+        const awningH = 34;
+        const awningY = isNorthBlock ? streetY + 70 : streetY;
+        const stripeW = 20;
+        for (let ax = w.x + 20; ax < w.x + w.w - 20; ax += stripeW) {
+          const isPink = Math.floor(ax / stripeW) % 2 === 0;
+          ctx.fillStyle = isPink ? '#f43f5e' : '#f8fafc';
+          ctx.fillRect(ax, awningY, stripeW, awningH);
+        }
+
+        // Store Display Window & Mannequins
+        ctx.fillStyle = 'rgba(244, 114, 182, 0.35)';
+        ctx.fillRect(w.x + 40, streetY + 15, w.w - 80, 50);
+        ctx.strokeStyle = '#f43f5e';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(w.x + 40, streetY + 15, w.w - 80, 50);
+
+        // Neon Signboard
+        ctx.fillStyle = '#f43f5e';
+        ctx.font = 'bold 15px "Outfit", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#f43f5e';
+        ctx.shadowBlur = 10;
+        ctx.fillText('★ CHERRY SWEET BOUTIQUE ★', w.x + w.w / 2, streetY - 5);
+        ctx.shadowBlur = 0;
+      } else if (w.label === 'Grand Hotel B') {
+        // CYBER ARCADE & GAMING
+        ctx.fillStyle = '#a855f7';
+        ctx.font = 'bold 16px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#c084fc';
+        ctx.shadowBlur = 12;
+        ctx.fillText('⚡ CYBER ARCADE 80s ⚡', w.x + w.w / 2, streetY - 5);
+        ctx.shadowBlur = 0;
+
+        // Glowing arcade pixel display marquee
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(w.x + 40, streetY + 15, w.w - 80, 55);
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(w.x + 40, streetY + 15, w.w - 80, 55);
+
+        // Neon CRT pixel graphics inside
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(w.x + 80, streetY + 25, 24, 24);
+        ctx.fillStyle = '#eab308';
+        ctx.fillRect(w.x + 140, streetY + 25, 24, 24);
+        ctx.fillStyle = '#ec4899';
+        ctx.fillRect(w.x + 200, streetY + 25, 24, 24);
+      } else if (w.label === 'Financial Center C') {
+        // METROPOLIS TOWER C
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 15px "Outfit", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = 10;
+        ctx.fillText('METRO FINANCIAL CENTER', w.x + w.w / 2, streetY - 5);
+        ctx.shadowBlur = 0;
+
+        // Marble entrance & glass atrium
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(w.x + 60, streetY + 10, w.w - 120, 60);
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(w.x + 60, streetY + 10, w.w - 120, 60);
+      } else if (w.label === 'Metropolis Mall D') {
+        // MATCHA BOBA CAFE
+        ctx.fillStyle = '#10b981';
+        ctx.font = 'bold 15px "Outfit", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#34d399';
+        ctx.shadowBlur = 10;
+        ctx.fillText('🍵 MATCHA BOBA TEA CAFE', w.x + w.w / 2, streetY + 30);
+        ctx.shadowBlur = 0;
+
+        // Green striped awning
+        const stripeW = 20;
+        for (let ax = w.x + 20; ax < w.x + w.w - 20; ax += stripeW) {
+          const isGreen = Math.floor(ax / stripeW) % 2 === 0;
+          ctx.fillStyle = isGreen ? '#059669' : '#f8fafc';
+          ctx.fillRect(ax, streetY + 45, stripeW, 28);
+        }
+      } else if (w.label === 'Arcade Complex E') {
+        // TOKYO MIDNIGHT RAMEN
+        ctx.fillStyle = '#f97316';
+        ctx.font = 'bold 15px "Outfit", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#fb923c';
+        ctx.shadowBlur = 10;
+        ctx.fillText('🍜 TOKYO MIDNIGHT RAMEN', w.x + w.w / 2, streetY + 30);
+        ctx.shadowBlur = 0;
+
+        // Glowing red paper lanterns
+        for (let lx = w.x + 80; lx < w.x + w.w - 80; lx += 80) {
+          ctx.fillStyle = '#dc2626';
+          ctx.beginPath();
+          ctx.roundRect(lx - 10, streetY + 45, 20, 26, 6);
+          ctx.fill();
+          ctx.fillStyle = '#fef08a';
+          ctx.fillRect(lx - 2, streetY + 54, 4, 8);
+        }
+      } else {
+        // 24/7 CONVENIENCE MART
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = 'bold 15px "Outfit", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#fbbf24';
+        ctx.shadowBlur = 10;
+        ctx.fillText('🏪 24H CONVENIENCE MART', w.x + w.w / 2, streetY + 30);
+        ctx.shadowBlur = 0;
+
+        // Bright supermarket display window
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.45)';
+        ctx.fillRect(w.x + 40, streetY + 45, w.w - 80, 50);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(w.x + 40, streetY + 45, w.w - 80, 50);
+      }
+
+      ctx.restore();
+    } else if (mapEnv.id === 'forest') {
+      // ANCIENT CRACKED STONE RUIN WALLS WITH IVY & MOSS
+      ctx.save();
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(w.x, w.y, w.w, w.h);
+
+      // Carved stone blocks
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1.8;
+      ctx.strokeRect(w.x, w.y, w.w, w.h);
+
+      // Stone block seams
+      const bLen = 42;
+      for (let bx = w.x + bLen; bx < w.x + w.w; bx += bLen) {
+        ctx.beginPath();
+        ctx.moveTo(bx, w.y);
+        ctx.lineTo(bx, w.y + w.h);
+        ctx.stroke();
+      }
+
+      // Wild green creeping ivy & moss patches
+      ctx.fillStyle = '#15803d';
+      for (let ix = w.x + 12; ix < w.x + w.w - 12; ix += 34) {
+        ctx.beginPath();
+        ctx.arc(ix, w.y + 4, 7, 0, Math.PI * 2);
+        ctx.arc(ix + 6, w.y + w.h - 4, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
     } else if (mapEnv.id === 'home') {
       // REAL FURNITURE OBSTACLES & DETAILED WALLS
       const fType = w.furnitureType || 'wall';
@@ -864,6 +1441,58 @@ export function drawCivilians(r: RenderContext) {
   ctx.restore();
 }
 
+/** Draws bouncing floating heart exp pickups with sparkling glow */
+export function drawHearts(r: RenderContext) {
+  const { ctx, cameraX, cameraY, hearts = [], gameTime } = r;
+  if (!hearts || hearts.length === 0) return;
+
+  ctx.save();
+  ctx.translate(-cameraX, -cameraY);
+
+  for (const h of hearts) {
+    const bob = Math.sin(gameTime * 5 + h.bobTimer) * 3.5;
+    const pulse = 1.0 + Math.sin(gameTime * 7 + h.id) * 0.12;
+    const currentScale = (h.scale || 1) * pulse;
+
+    ctx.save();
+    ctx.translate(h.x, h.y + bob);
+    ctx.scale(currentScale, currentScale);
+
+    // Soft outer pink glow
+    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 16);
+    glow.addColorStop(0, 'rgba(244, 63, 94, 0.55)');
+    glow.addColorStop(0.6, 'rgba(236, 72, 153, 0.25)');
+    glow.addColorStop(1, 'rgba(236, 72, 153, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Heart Shape
+    ctx.fillStyle = h.color || '#f43f5e';
+    ctx.beginPath();
+    ctx.moveTo(0, 3);
+    ctx.bezierCurveTo(-5, -3, -9, -9, 0, -11);
+    ctx.bezierCurveTo(9, -9, 5, -3, 0, 3);
+    ctx.fill();
+
+    // Inner darker contour accent
+    ctx.strokeStyle = '#be123c';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // Specular highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath();
+    ctx.ellipse(-2.5, -7.5, 2, 1.2, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
 /** Draws weapon pickups */
 export function drawWeaponPickups(r: RenderContext) {
   const { ctx, cameraX, cameraY, pickups, gameTime } = r;
@@ -1061,6 +1690,74 @@ export function drawPlayer(r: RenderContext) {
   ctx.arc(4.5, -7.5, 1.6, 0, Math.PI * 2);
   ctx.fill();
 
+  // --- CHARM EVOLUTIONS (Player looks more the part as Adoration Level rises!) ---
+  const charmLvl = r.adorationLevel || 1;
+
+  // Level >= 2: Blushing Cheeks & Pink Silk Hair Ribbons
+  if (charmLvl >= 2) {
+    ctx.fillStyle = '#f43f5e';
+    ctx.beginPath();
+    ctx.arc(-5, -7.5, 2.2, 0, Math.PI * 2);
+    ctx.arc(5, -7.5, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Twin pink ribbons in bangs
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.ellipse(-7.5, -12, 3, 1.8, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(7.5, -12, 3, 1.8, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Level >= 3: Velvet Choker with mini golden bell at neck
+  if (charmLvl >= 3) {
+    ctx.fillStyle = '#1e1b4b';
+    ctx.fillRect(-3.5, -2, 7, 2);
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(0, -1, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Level >= 4: Pastel Maid Apron & Frills
+  if (charmLvl >= 4) {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(-4.5, 2, 9, 5, 1.5);
+    ctx.fill();
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // Cute feline ear silhouettes
+    ctx.fillStyle = '#fbcfe8';
+    ctx.beginPath();
+    ctx.moveTo(-6, -14);
+    ctx.lineTo(-4, -19);
+    ctx.lineTo(-2, -14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2, -14);
+    ctx.lineTo(4, -19);
+    ctx.lineTo(6, -14);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Level >= 5: Sparkling Stardust Orbital Aura
+  if (charmLvl >= 5) {
+    for (let st = 0; st < 5; st++) {
+      const sAngle = r.gameTime * 2.8 + (st * Math.PI * 2) / 5;
+      const sx = Math.cos(sAngle) * 20;
+      const sy = Math.sin(sAngle) * 12;
+      ctx.fillStyle = st % 2 === 0 ? '#fef08a' : '#f472b6';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   // Petite blaster in hand pointing towards target angle
   ctx.save();
   ctx.rotate(player.angle);
@@ -1158,20 +1855,17 @@ export function drawEnemies(r: RenderContext) {
     switch (e.archetype) {
       case 'sheriff': {
         // --- SHERIFF ABIGAIL: VISIBLE SEARCHLIGHT CONE & COWBOY ATTIRE ---
-        // 1. VISIBLE LINE OF SIGHT CONE
         ctx.save();
-        const coneDist = 360;
-        const coneSpread = Math.PI / 6; // 60 degree cone
+        const coneDist = r.activeUpgrades?.includes('sheriff_spotlight') ? 480 : 360;
+        const coneSpread = r.activeUpgrades?.includes('sheriff_spotlight') ? Math.PI / 4 : Math.PI / 6;
         const isSpotted = !!e.isSpottedInCone;
 
         const coneGrad = ctx.createRadialGradient(0, -6, 10, 0, -6, coneDist);
         if (isSpotted) {
-          // Warning Red Alert spotlight when player is in sight!
           coneGrad.addColorStop(0, 'rgba(239, 68, 68, 0.55)');
           coneGrad.addColorStop(0.5, 'rgba(239, 68, 68, 0.28)');
           coneGrad.addColorStop(1, 'rgba(239, 68, 68, 0)');
         } else {
-          // Ambient Golden Searchlight sweeping ahead
           coneGrad.addColorStop(0, 'rgba(250, 204, 21, 0.38)');
           coneGrad.addColorStop(0.5, 'rgba(250, 204, 21, 0.16)');
           coneGrad.addColorStop(1, 'rgba(250, 204, 21, 0)');
@@ -1184,7 +1878,6 @@ export function drawEnemies(r: RenderContext) {
         ctx.closePath();
         ctx.fill();
 
-        // Edge guidance lines for the searchlight cone
         ctx.strokeStyle = isSpotted ? 'rgba(239, 68, 68, 0.65)' : 'rgba(250, 204, 21, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -1195,22 +1888,17 @@ export function drawEnemies(r: RenderContext) {
         ctx.stroke();
 
         if (isSpotted) {
-          // Spotted Alert Callout
           ctx.fillStyle = '#ef4444';
           ctx.font = '900 11px Outfit, sans-serif';
           ctx.textAlign = 'center';
           ctx.fillText('TARGET SPOTTED!', 0, -32);
+        } else if (!e.isKiting && (e.copsSummoned || 0) >= (e.stageQuota || 1)) {
+          ctx.fillStyle = '#f59e0b';
+          ctx.font = 'bold 9px Outfit, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('! DIRECT CHASE !', 0, -30);
         }
         ctx.restore();
-
-        // Whistle alarm ring aura
-        if (e.isKiting) {
-          ctx.strokeStyle = '#facc15';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(0, 0, 26, 0, Math.PI * 2);
-          ctx.stroke();
-        }
 
         // Leather boots
         ctx.fillStyle = '#451a03';
@@ -1243,11 +1931,9 @@ export function drawEnemies(r: RenderContext) {
 
         // Stetson / Cowboy Hat
         ctx.fillStyle = '#451a03';
-        // Hat brim
         ctx.beginPath();
         ctx.ellipse(0, -14, 15, 5, 0, 0, Math.PI * 2);
         ctx.fill();
-        // Crown
         ctx.beginPath();
         ctx.roundRect(-7, -21, 14, 8, 3);
         ctx.fill();
@@ -1262,12 +1948,53 @@ export function drawEnemies(r: RenderContext) {
       }
 
       case 'officer': {
-        // --- OFFICER VIKI: Patrol Deputy with peaked cap & sirens ---
-        const sirenRed = Math.floor(gameTime * 16) % 2 === 0;
-        ctx.fillStyle = sirenRed ? 'rgba(239, 68, 68, 0.35)' : 'rgba(59, 130, 246, 0.35)';
-        ctx.beginPath();
-        ctx.arc(0, 0, 28, 0, Math.PI * 2);
-        ctx.fill();
+        // --- OFFICER VIKI: Patrol Deputy with Peaked Cap & LoS Flashlight ---
+        if (!e.isAlerted) {
+          // Unalerted Patrol Mode: Focused small patrol flashlight beam
+          ctx.save();
+          const pAngle = e.angle;
+          const pDist = r.activeUpgrades?.includes('officer_highbeam') ? 300 : 200;
+          const pSpread = Math.PI / 5.2;
+
+          const fGrad = ctx.createRadialGradient(0, -6, 6, 0, -6, pDist);
+          fGrad.addColorStop(0, 'rgba(254, 240, 138, 0.42)');
+          fGrad.addColorStop(0.6, 'rgba(254, 240, 138, 0.16)');
+          fGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+          ctx.fillStyle = fGrad;
+          ctx.beginPath();
+          ctx.moveTo(0, -6);
+          ctx.arc(0, -6, pDist, pAngle - pSpread, pAngle + pSpread);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.strokeStyle = 'rgba(254, 240, 138, 0.35)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, -6);
+          ctx.lineTo(Math.cos(pAngle - pSpread) * pDist, Math.sin(pAngle - pSpread) * pDist);
+          ctx.moveTo(0, -6);
+          ctx.lineTo(Math.cos(pAngle + pSpread) * pDist, Math.sin(pAngle + pSpread) * pDist);
+          ctx.stroke();
+
+          // Soft patrol label
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = '600 8px "Outfit", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('ON PATROL', 0, -28);
+          ctx.restore();
+        } else {
+          // Alerted Mode: Flashing red/blue cruiser beacon
+          const sirenRed = Math.floor(gameTime * 16) % 2 === 0;
+          ctx.fillStyle = sirenRed ? 'rgba(239, 68, 68, 0.4)' : 'rgba(59, 130, 246, 0.4)';
+          ctx.beginPath();
+          ctx.arc(0, 0, 32, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 9px "Outfit", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('! PURSUIT !', 0, -28);
+        }
 
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(-6, 11 + legBob, 4, 5);

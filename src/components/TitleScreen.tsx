@@ -10,6 +10,7 @@ interface TitleScreenProps {
   isMuted: boolean;
   onToggleMute: () => void;
   onStart: () => void;
+  onOpenManual?: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -19,6 +20,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   isMuted,
   onToggleMute,
   onStart,
+  onOpenManual,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,14 +59,25 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           )}
         </div>
 
-        <button
-          onClick={onToggleMute}
-          className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
-          title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-          aria-label={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-        >
-          {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {onOpenManual && (
+            <button
+              onClick={onOpenManual}
+              className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-pink-300 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+              title="Open Debuff Compendium"
+            >
+              <span>MANUAL</span>
+            </button>
+          )}
+          <button
+            onClick={onToggleMute}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
+            title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+            aria-label={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+          >
+            {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5 text-emerald-400" />}
+          </button>
+        </div>
       </header>
 
       {/* Main Center Section */}

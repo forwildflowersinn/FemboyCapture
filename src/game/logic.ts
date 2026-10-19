@@ -187,8 +187,45 @@ export interface EnemyState {
   sightTimer?: number;
   batAngle?: number;
   isShiny?: boolean;
+  shinyAttackTimer?: number;
+  shinySpecial?: string;
   deflectSparkTimer?: number;
   isSpottedInCone?: boolean;
+
+  // Sheriff stage cop quota
+  copsSummoned?: number;
+  stageQuota?: number;
+
+  // Officer patrol & line of sight
+  isAlerted?: boolean;
+  patrolAngle?: number;
+  patrolTimer?: number;
+
+  // Barricade assault state
+  attackingBreachId?: string;
+  attackCooldown?: number;
+}
+
+export interface HeartPickup {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  bobTimer: number;
+  value: number; // EXP value
+  color: string;
+  scale: number;
+}
+
+export interface EnemyUpgrade {
+  id: string;
+  archetype: ArchetypeId;
+  title: string;
+  desireNote: string;
+  effectDescription: string;
+  statModifierKey: string;
+  icon?: string;
 }
 
 export interface BulletState {
@@ -292,10 +329,13 @@ export interface BreachPoint {
   label: string;
   x: number;
   y: number;
-  w?: number;
-  h?: number;
+  w: number;
+  h: number;
   isWindow?: boolean;
   isDoor?: boolean;
+  isBarricaded?: boolean;
+  barricadeHp?: number;
+  maxBarricadeHp?: number;
   breached?: boolean;
 }
 
@@ -459,12 +499,25 @@ export function createMapEnvironment(type: MapType): MapEnvironment {
       const height = 1450;
 
       // Realistic architectural layout with 4 distinct rooms & central hallway
+      // Segmented Exterior Walls with true physical openings for Doors & Windows!
       const walls: WallRect[] = [
-        // Exterior Boundary Walls (with openings for breach doors & windows)
-        { x: 80, y: 80, w: 1740, h: 28, label: 'North Exterior Wall', furnitureType: 'wall' },
-        { x: 80, y: 1342, w: 1740, h: 28, label: 'South Exterior Wall', furnitureType: 'wall' },
-        { x: 80, y: 80, w: 28, h: 1290, label: 'West Exterior Wall', furnitureType: 'wall' },
-        { x: 1792, y: 80, w: 28, h: 1290, label: 'East Exterior Wall', furnitureType: 'wall' },
+        // North Wall: Door opening at x: 1420-1530
+        { x: 80, y: 80, w: 1340, h: 28, label: 'North Exterior Wall Left', furnitureType: 'wall' },
+        { x: 1530, y: 80, w: 290, h: 28, label: 'North Exterior Wall Right', furnitureType: 'wall' },
+
+        // South Wall: Door opening at x: 860-950
+        { x: 80, y: 1342, w: 780, h: 28, label: 'South Exterior Wall Left', furnitureType: 'wall' },
+        { x: 950, y: 1342, w: 870, h: 28, label: 'South Exterior Wall Right', furnitureType: 'wall' },
+
+        // West Wall: Window openings at y: 330-420 and y: 970-1040
+        { x: 80, y: 80, w: 28, h: 250, label: 'West Exterior Wall Top', furnitureType: 'wall' },
+        { x: 80, y: 420, w: 28, h: 550, label: 'West Exterior Wall Mid', furnitureType: 'wall' },
+        { x: 80, y: 1040, w: 28, h: 330, label: 'West Exterior Wall Bottom', furnitureType: 'wall' },
+
+        // East Wall: Window openings at y: 390-490 and y: 1050-1150
+        { x: 1792, y: 80, w: 28, h: 310, label: 'East Exterior Wall Top', furnitureType: 'wall' },
+        { x: 1792, y: 490, w: 28, h: 560, label: 'East Exterior Wall Mid', furnitureType: 'wall' },
+        { x: 1792, y: 1150, w: 28, h: 220, label: 'East Exterior Wall Bottom', furnitureType: 'wall' },
 
         // --- Interior Partition Walls with Open Doorways ---
         // North-South partition separating Kitchen (West) from Living Room (East) (doorway at y: 380-500)
@@ -509,21 +562,27 @@ export function createMapEnvironment(type: MapType): MapEnvironment {
         { x: 118, y: 1240, w: 60, h: 75, label: 'Ceramic Toilet', furnitureType: 'toilet' },
       ];
 
-      // Visual and Functional Breach Points for Windows and Doors
+      // Visual and Functional Breach Points for Windows and Doors with Barricade mechanics
       const breachPoints: BreachPoint[] = [
-        // Exterior Doors
-        { id: 'front-door', label: 'Front Entrance Door', x: 860, y: 1342, w: 90, h: 28, isDoor: true },
-        { id: 'patio-door', label: 'Back Patio Glass Door', x: 1420, y: 80, w: 110, h: 28, isDoor: true },
+        // Exterior Doors (Sturdy wooden doors, 130 Max HP)
+        { id: 'front-door', label: 'Front Entrance Door', x: 860, y: 1342, w: 90, h: 28, isDoor: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 130 },
+        { id: 'patio-door', label: 'Back Patio Glass Door', x: 1420, y: 80, w: 110, h: 28, isDoor: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 130 },
 
-        // Exterior Windows (Actual visual glass panes & breaching locations)
-        { id: 'window-kitchen', label: 'Kitchen Window', x: 80, y: 330, w: 28, h: 90, isWindow: true },
-        { id: 'window-living', label: 'Living Room Window', x: 1792, y: 390, w: 28, h: 100, isWindow: true },
-        { id: 'window-bedroom', label: 'Master Bedroom Window', x: 1792, y: 1050, w: 28, h: 100, isWindow: true },
-        { id: 'window-bathroom', label: 'Bathroom Privacy Window', x: 80, y: 970, w: 28, h: 70, isWindow: true },
+        // Exterior Windows (Wooden cross-planked windows, 80 Max HP)
+        { id: 'window-kitchen', label: 'Kitchen Window', x: 80, y: 330, w: 28, h: 90, isWindow: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 80 },
+        { id: 'window-living', label: 'Living Room Window', x: 1792, y: 390, w: 28, h: 100, isWindow: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 80 },
+        { id: 'window-bedroom', label: 'Master Bedroom Window', x: 1792, y: 1050, w: 28, h: 100, isWindow: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 80 },
+        { id: 'window-bathroom', label: 'Bathroom Privacy Window', x: 80, y: 970, w: 28, h: 70, isWindow: true, isBarricaded: false, barricadeHp: 0, maxBarricadeHp: 80 },
       ];
 
-      // Waypoint doorways for Smart Pathing
+      // Waypoint doorways & breach entry points for Smart Pathing
       const doorways = [
+        { x: 905, y: 1342 + 14 }, // Front door entry
+        { x: 1475, y: 80 + 14 }, // Patio door entry
+        { x: 80 + 14, y: 375 }, // Kitchen window entry
+        { x: 80 + 14, y: 1005 }, // Bathroom window entry
+        { x: 1792 + 14, y: 440 }, // Living window entry
+        { x: 1792 + 14, y: 1100 }, // Bedroom window entry
         { x: 740, y: 440 }, // Kitchen to Living Room
         { x: 860, y: 740 }, // Living Room / Foyer transition
         { x: 1080, y: 920 }, // Hallway to Bedroom
@@ -622,60 +681,404 @@ export function createMapEnvironment(type: MapType): MapEnvironment {
   }
 }
 
-/** Active archetypes progression */
+/** Maximum active mobs to prevent overwhelming swarms while enhancing enemy quality */
+export function getMaxMobCap(mapId: MapType): number {
+  switch (mapId) {
+    case 'home':
+      return 10;
+    case 'city':
+      return 16;
+    case 'forest':
+    default:
+      return 14;
+  }
+}
+
+/** Stage-based cop summon limits for Sheriff (stops calling backup after quota and chases instead) */
+export function getStageCopLimit(survivalTime: number): number {
+  if (survivalTime < 45) return 1;
+  if (survivalTime < 95) return 2;
+  if (survivalTime < 160) return 3;
+  return 4;
+}
+
+/** Heart EXP requirement per charm fascination level */
+export function getExpForLevel(level: number): number {
+  if (level <= 1) return 15;
+  if (level === 2) return 25;
+  if (level === 3) return 40;
+  if (level === 4) return 60;
+  if (level === 5) return 85;
+  return 85 + (level - 5) * 35;
+}
+
+export const CHARM_LEVEL_TITLES: { level: number; title: string; accessory: string }[] = [
+  { level: 1, title: 'Cute Runner', accessory: 'Standard Hoodie' },
+  { level: 2, title: 'Flustered Allure', accessory: 'Blushing Cheeks & Silk Hair Ribbons' },
+  { level: 3, title: 'Sweet Temptation', accessory: 'Pastel Choker & Satin Bow' },
+  { level: 4, title: 'Darling Enchanter', accessory: 'Frilly Apron & Feline Silhouette' },
+  { level: 5, title: 'Radiant Dream Boy', accessory: 'Stardust Halo & Sparkling Aura' },
+  { level: 6, title: 'Celestial Heartthrob', accessory: 'Irresistible Divine Glow' },
+];
+
+export function getCharmPerkForLevel(level: number): { title: string; accessory: string } {
+  const found = CHARM_LEVEL_TITLES.find((c) => c.level === level);
+  if (found) return found;
+  return {
+    title: `Ultimate Idol Lv. ${level}`,
+    accessory: 'Transcendent Adoration Sparkles',
+  };
+}
+
+/** 24 Thematic Enemy Upgrades inspired by the pursuers' desire and obsession */
+export const ENEMY_UPGRADE_POOL: EnemyUpgrade[] = [
+  // Sheriff Abigail
+  {
+    id: 'sheriff_lockdown',
+    archetype: 'sheriff',
+    title: 'Precinct Warrant',
+    desireNote: 'She signed a county-wide warrant to bring you in unharmed.',
+    effectDescription: 'Deputy Officers gain +35% Max HP and +20% movement speed.',
+    statModifierKey: 'sheriff_lockdown',
+    icon: 'Shield',
+  },
+  {
+    id: 'sheriff_spotlight',
+    archetype: 'sheriff',
+    title: 'Searchlight Spotlight',
+    desireNote: 'She aims high-intensity cruiser halogen spotlights directly at you.',
+    effectDescription: 'Searchlight cone is 35% wider & 120px longer; slows you by 15% when caught in the beam.',
+    statModifierKey: 'sheriff_spotlight',
+    icon: 'Sun',
+  },
+  {
+    id: 'sheriff_determination',
+    archetype: 'sheriff',
+    title: 'Sheriff’s Personal Pursuit',
+    desireNote: 'Refusing to delegate any longer, Abigail vows to take you in herself.',
+    effectDescription: 'When cop summons finish, Sheriff sprints +45% faster in direct, aggressive pursuit.',
+    statModifierKey: 'sheriff_determination',
+    icon: 'Flame',
+  },
+
+  // Officer Viki
+  {
+    id: 'officer_cruiser_pace',
+    archetype: 'officer',
+    title: 'Cruiser Interceptor Siren',
+    desireNote: 'Her heart races as her squad siren screams down the avenue.',
+    effectDescription: 'Officers sprint +30% faster when alerted and honk to alert nearby officers within 400px.',
+    statModifierKey: 'officer_cruiser_pace',
+    icon: 'Bell',
+  },
+  {
+    id: 'officer_highbeam',
+    archetype: 'officer',
+    title: 'High-Beam Patrol Beam',
+    desireNote: 'She sweeps every alleyway determined not to lose your trail.',
+    effectDescription: 'Officer line-of-sight is 50% longer and spots you through thin bushes.',
+    statModifierKey: 'officer_highbeam',
+    icon: 'Eye',
+  },
+  {
+    id: 'officer_riot_poise',
+    archetype: 'officer',
+    title: 'Tactical Deputy Shield',
+    desireNote: 'Equipped with precinct crowd-control gear to absorb your gunfire.',
+    effectDescription: 'Officers resist 40% of bullet knockback and deflect 25% frontal projectile damage.',
+    statModifierKey: 'officer_riot_poise',
+    icon: 'ShieldAlert',
+  },
+
+  // Delinquent Ryuko
+  {
+    id: 'delinquent_reinforced_shinai',
+    archetype: 'delinquent',
+    title: 'Hardened Oak Bat',
+    desireNote: 'Ryuko swings her bat with fierce passion to sweep you into her gang.',
+    effectDescription: 'Bat deflection arc expands to 140° and reflects flying sparks that can daze you.',
+    statModifierKey: 'delinquent_reinforced_shinai',
+    icon: 'Zap',
+  },
+  {
+    id: 'delinquent_unflinching_pride',
+    archetype: 'delinquent',
+    title: 'Sukeban Swagger',
+    desireNote: 'She refuses to let a cute boy slip away, no matter how many shots you fire.',
+    effectDescription: 'Ryuko gains +30% HP and her brawler dash cooldown is reduced by 35%.',
+    statModifierKey: 'delinquent_unflinching_pride',
+    icon: 'Heart',
+  },
+  {
+    id: 'delinquent_territory_burn',
+    archetype: 'delinquent',
+    title: 'Turf Skidmark Skids',
+    desireNote: 'Her boots leave rebellious spray and friction trails across the ground.',
+    effectDescription: 'Leaves glowing red spray paint skidmarks that slow your sprint by 25%.',
+    statModifierKey: 'delinquent_territory_burn',
+    icon: 'Flame',
+  },
+
+  // Tomboy Roxie
+  {
+    id: 'tomboy_track_spikes',
+    archetype: 'tomboy',
+    title: 'Varsity Sprint Cleats',
+    desireNote: 'She laces up her favorite spiked track shoes just to chase you down.',
+    effectDescription: 'Roxie’s sprint dashes are 35% faster and kick up dust clouds that obscure vision.',
+    statModifierKey: 'tomboy_track_spikes',
+    icon: 'Sparkles',
+  },
+  {
+    id: 'tomboy_bear_hug',
+    archetype: 'tomboy',
+    title: 'Athletic Bear Hug',
+    desireNote: 'She’s dying to tackle you into the soft grass and keep you close.',
+    effectDescription: 'Tomboy grab radius increases by 25% and she immediately recovers from obstacle collisions.',
+    statModifierKey: 'tomboy_bear_hug',
+    icon: 'Smile',
+  },
+  {
+    id: 'tomboy_competitive_spirit',
+    archetype: 'tomboy',
+    title: 'Competitive Fever',
+    desireNote: 'Every time you shoot, she takes it as a direct athletic challenge!',
+    effectDescription: 'Whenever you fire a weapon, Roxie gains a 1-second sprint boost (+25% speed).',
+    statModifierKey: 'tomboy_competitive_spirit',
+    icon: 'Flame',
+  },
+
+  // Goth Raven
+  {
+    id: 'goth_shadow_slip',
+    archetype: 'goth',
+    title: 'Velvet Phase Stride',
+    desireNote: 'She slips through the twilight shadows seeking your warmth.',
+    effectDescription: 'Shadow teleport distance increased to 140px and cooldown reduced by 40%.',
+    statModifierKey: 'goth_shadow_slip',
+    icon: 'Moon',
+  },
+  {
+    id: 'goth_sorrow_aura',
+    archetype: 'goth',
+    title: 'Nocturnal Melancholy',
+    desireNote: 'A cold, romantic gloom emanates from her presence.',
+    effectDescription: 'Raven radiates a 180px dark violet aura that reduces your weapon firing cadence by 25%.',
+    statModifierKey: 'goth_sorrow_aura',
+    icon: 'CloudRain',
+  },
+  {
+    id: 'goth_raven_feather',
+    archetype: 'goth',
+    title: 'Feather Storm Dispersion',
+    desireNote: 'When struck by your bullets, she leaves swirling raven mementos.',
+    effectDescription: 'Taking damage releases a burst of dark feathers that briefly drift toward your crosshairs.',
+    statModifierKey: 'goth_raven_feather',
+    icon: 'Feather',
+  },
+
+  // Gyaru Chloe
+  {
+    id: 'gyaru_ring_light',
+    archetype: 'gyaru',
+    title: 'Glamour Strobe Flash',
+    desireNote: 'She wants the perfect couples selfie with you and won’t take no for an answer!',
+    effectDescription: 'Emits a camera strobe flash every 7s that briefly creates sparkling afterimage glare.',
+    statModifierKey: 'gyaru_ring_light',
+    icon: 'Camera',
+  },
+  {
+    id: 'gyaru_hype_squad',
+    archetype: 'gyaru',
+    title: 'Cheerleader Frenzy',
+    desireNote: 'Chloe cheers on every pursuer with loud, high-energy enthusiasm.',
+    effectDescription: 'Her cheer aura grants all surrounding pursuers within 180px +25% sprint speed and +20% HP.',
+    statModifierKey: 'gyaru_hype_squad',
+    icon: 'Music',
+  },
+  {
+    id: 'gyaru_platform_stomp',
+    archetype: 'gyaru',
+    title: 'Platform Heel Shockwave',
+    desireNote: 'Her cute platform boots create energetic rhythmic vibrations.',
+    effectDescription: 'Chloe’s footsteps emit cute pink shockwaves that gently deflect incoming pellets.',
+    statModifierKey: 'gyaru_platform_stomp',
+    icon: 'Volume2',
+  },
+
+  // Office Senpai
+  {
+    id: 'senpai_espresso_rush',
+    archetype: 'senpai',
+    title: 'Double Espresso Rush',
+    desireNote: 'She downed a double shot to ensure she doesn’t miss your mandatory review.',
+    effectDescription: 'Senpai drops hot coffee hazard puddles twice as often and moves 20% faster.',
+    statModifierKey: 'senpai_espresso_rush',
+    icon: 'Coffee',
+  },
+  {
+    id: 'senpai_dominant_gaze',
+    archetype: 'senpai',
+    title: 'Authoritative Glare',
+    desireNote: 'Her intense, confident gaze makes you flustered and clumsy.',
+    effectDescription: 'Standing within 220px of Senpai induces nervous tremors (+40% bullet spread).',
+    statModifierKey: 'senpai_dominant_gaze',
+    icon: 'EyeOff',
+  },
+  {
+    id: 'senpai_corporate_tenacity',
+    archetype: 'senpai',
+    title: 'Corporate Poise',
+    desireNote: 'A polished career woman cannot be deterred by simple play-blasters.',
+    effectDescription: 'Senpai gains +60% HP and completely ignores minor bullet stagger.',
+    statModifierKey: 'senpai_corporate_tenacity',
+    icon: 'Briefcase',
+  },
+
+  // Yandere Ayame
+  {
+    id: 'yandere_red_string',
+    archetype: 'yandere',
+    title: 'Red String of Destiny',
+    desireNote: 'An ethereal crimson thread binds her directly to your beating heart.',
+    effectDescription: 'Ayame moves 35% faster when heading directly along your recent footsteps.',
+    statModifierKey: 'yandere_red_string',
+    icon: 'HeartCrack',
+  },
+  {
+    id: 'yandere_obsessive_phase',
+    archetype: 'yandere',
+    title: 'Rose Petal Vortex',
+    desireNote: 'She cannot bear being more than a stone’s throw away from her true love.',
+    effectDescription: 'If you create over 550px distance, Ayame teleports 200px behind you amidst swirling petals.',
+    statModifierKey: 'yandere_obsessive_phase',
+    icon: 'Flower2',
+  },
+  {
+    id: 'yandere_crimson_frenzy',
+    archetype: 'yandere',
+    title: 'Everlasting Devotion',
+    desireNote: 'Every shot you fire into her only deepens her fiery, unyielding passion.',
+    effectDescription: 'As Ayame’s HP drops, her sprint speed and attack reach increase by up to +60%!',
+    statModifierKey: 'yandere_crimson_frenzy',
+    icon: 'Flame',
+  },
+];
+
+export function rollEnemyUpgrades(activeUpgradeIds: string[], count: number = 3): EnemyUpgrade[] {
+  const activeSet = new Set(activeUpgradeIds);
+  const available = ENEMY_UPGRADE_POOL.filter((u) => !activeSet.has(u.id));
+  if (available.length === 0) {
+    return [...ENEMY_UPGRADE_POOL].sort(() => Math.random() - 0.5).slice(0, count);
+  }
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, shuffled.length));
+}
+
+/** Active archetypes progression with authentic map themes */
 export function getActiveArchetypes(survivalTime: number, mapId?: MapType): ArchetypeId[] {
-  // In city: spawn officers, delinquent, tomboy, gyaru, senpai, etc. (no sheriffs)
+  // In city: officers spawn naturally on urban beats! Gyaru, delinquent, and senpai are prevalent
   if (mapId === 'city') {
-    if (survivalTime < 25) return ['officer', 'delinquent'];
-    if (survivalTime < 50) return ['officer', 'delinquent', 'tomboy'];
-    if (survivalTime < 80) return ['officer', 'delinquent', 'tomboy', 'gyaru'];
-    return ['officer', 'delinquent', 'tomboy', 'gyaru', 'goth', 'senpai', 'yandere'];
+    if (survivalTime < 30) return ['officer', 'delinquent', 'gyaru'];
+    if (survivalTime < 70) return ['officer', 'delinquent', 'gyaru', 'senpai'];
+    if (survivalTime < 120) return ['officer', 'delinquent', 'gyaru', 'senpai', 'goth'];
+    return ['officer', 'delinquent', 'gyaru', 'senpai', 'goth', 'tomboy', 'yandere'];
   }
 
-  // Standard progression
-  if (survivalTime < 20) {
+  // In home: break-in intruders, stalkers, overbearing visitors! (Officers do NOT spawn naturally)
+  if (mapId === 'home') {
+    if (survivalTime < 30) return ['delinquent', 'yandere'];
+    if (survivalTime < 70) return ['delinquent', 'yandere', 'senpai', 'tomboy'];
+    return ['delinquent', 'yandere', 'senpai', 'tomboy', 'goth'];
+  }
+
+  // In forest: Park/County Sheriff, athletic trail runners, stalkers (Officers do NOT spawn naturally!)
+  if (survivalTime < 30) {
     return ['sheriff', 'tomboy'];
   }
-  if (survivalTime < 45) {
+  if (survivalTime < 70) {
     return ['sheriff', 'tomboy', 'delinquent'];
   }
-  if (survivalTime < 75) {
-    return ['sheriff', 'tomboy', 'delinquent', 'gyaru', 'goth'];
+  if (survivalTime < 120) {
+    return ['sheriff', 'tomboy', 'delinquent', 'yandere', 'goth'];
   }
-  if (survivalTime < 110) {
-    return ['sheriff', 'tomboy', 'delinquent', 'gyaru', 'goth', 'senpai'];
-  }
-  return ['sheriff', 'officer', 'delinquent', 'tomboy', 'goth', 'gyaru', 'senpai', 'yandere'];
+  return ['sheriff', 'tomboy', 'delinquent', 'yandere', 'goth', 'gyaru'];
 }
 
 export function getSpawnInterval(survivalTime: number): number {
-  return Math.max(0.55, 2.4 - survivalTime * 0.016);
+  return Math.max(0.9, 2.6 - survivalTime * 0.012);
 }
 
-export function createArchetypeSpecs(archetype: ArchetypeId, survivalTime: number): {
+export function createArchetypeSpecs(
+  archetype: ArchetypeId,
+  survivalTime: number,
+  activeUpgrades: string[] = [],
+  isShiny: boolean = false
+): {
   hp: number;
   radius: number;
   baseSpeed: number;
 } {
   const speedScale = 1.0 + Math.min(survivalTime * 0.002, 0.35);
+  let hp = 30;
+  let radius = 18;
+  let baseSpeed = 140;
+
   switch (archetype) {
     case 'sheriff':
-      return { hp: 45, radius: 19, baseSpeed: 95 * speedScale }; // Slow summoner
+      hp = 50;
+      radius = 19;
+      baseSpeed = 100 * speedScale;
+      break;
     case 'officer':
-      return { hp: 34, radius: 18, baseSpeed: 175 * speedScale }; // Fast deputy responder
+      hp = 36;
+      radius = 18;
+      baseSpeed = 175 * speedScale;
+      if (activeUpgrades.includes('sheriff_lockdown')) hp += 15;
+      if (activeUpgrades.includes('officer_riot_poise')) hp += 12;
+      break;
     case 'delinquent':
-      return { hp: 48, radius: 19, baseSpeed: 140 * speedScale }; // Tough brawler
+      hp = 50;
+      radius = 19;
+      baseSpeed = 140 * speedScale;
+      if (activeUpgrades.includes('delinquent_unflinching_pride')) hp += 18;
+      break;
     case 'tomboy':
-      return { hp: 32, radius: 18, baseSpeed: 146 * speedScale };
+      hp = 34;
+      radius = 18;
+      baseSpeed = 148 * speedScale;
+      break;
     case 'goth':
-      return { hp: 28, radius: 17, baseSpeed: 120 * speedScale };
+      hp = 30;
+      radius = 17;
+      baseSpeed = 122 * speedScale;
+      break;
     case 'gyaru':
-      return { hp: 24, radius: 16, baseSpeed: 155 * speedScale };
+      hp = 26;
+      radius = 16;
+      baseSpeed = 158 * speedScale;
+      break;
     case 'senpai':
-      return { hp: 55, radius: 20, baseSpeed: 105 * speedScale };
+      hp = 58;
+      radius = 20;
+      baseSpeed = 108 * speedScale;
+      if (activeUpgrades.includes('senpai_corporate_tenacity')) hp += 35;
+      break;
     case 'yandere':
-      return { hp: 40, radius: 18, baseSpeed: 160 * speedScale };
+      hp = 42;
+      radius = 18;
+      baseSpeed = 162 * speedScale;
+      break;
   }
+
+  // Golden Mini-Boss Shinies: 3.5x HP, +22% base speed, slightly larger radius
+  if (isShiny) {
+    hp = Math.round(hp * 3.5);
+    baseSpeed = Math.round(baseSpeed * 1.22);
+    radius += 3;
+  }
+
+  return { hp, radius, baseSpeed };
 }
 
 /** Check if direct line to target is blocked by any wall */
@@ -696,20 +1099,57 @@ export function isLineBlockedByWalls(
 
 /**
  * Smart Pathing & Obstacle Avoidance for Enemies:
- * Steers around obstacles when direct path is obstructed.
+ * Steers around obstacles, and for Home map guides exterior enemies to the nearest breach point.
  */
 export function computeSmartSteering(
   enemy: EnemyState,
   targetX: number,
   targetY: number,
   walls: WallRect[],
-  doorways?: { x: number; y: number }[]
-): { moveX: number; moveY: number } {
+  doorways?: { x: number; y: number }[],
+  breachPoints?: BreachPoint[],
+  mapId?: MapType
+): { moveX: number; moveY: number; attackingBreach?: BreachPoint } {
   const dx = targetX - enemy.x;
   const dy = targetY - enemy.y;
   const directDist = Math.hypot(dx, dy) || 1;
   const directX = dx / directDist;
   const directY = dy / directDist;
+
+  // In Suburban Home: If enemy is outside the house footprint, navigate toward closest breach point!
+  if (mapId === 'home' && breachPoints && breachPoints.length > 0) {
+    const isOutside = enemy.x < 105 || enemy.x > 1765 || enemy.y < 105 || enemy.y > 1315;
+    if (isOutside) {
+      let bestBp: BreachPoint = breachPoints[0];
+      let bestScore = Infinity;
+      for (const bp of breachPoints) {
+        const bpCenterX = bp.x + bp.w / 2;
+        const bpCenterY = bp.y + bp.h / 2;
+        const distToBp = Math.hypot(bpCenterX - enemy.x, bpCenterY - enemy.y);
+        const distFromBpToTarget = Math.hypot(targetX - bpCenterX, targetY - bpCenterY);
+        // Prioritize closest breach point
+        const barricadePenalty = bp.isBarricaded ? 50 : 0;
+        const totalScore = distToBp + distFromBpToTarget * 0.4 + barricadePenalty;
+        if (totalScore < bestScore) {
+          bestScore = totalScore;
+          bestBp = bp;
+        }
+      }
+
+      const bpTargetX = bestBp.x + bestBp.w / 2;
+      const bpTargetY = bestBp.y + bestBp.h / 2;
+      const bdx = bpTargetX - enemy.x;
+      const bdy = bpTargetY - enemy.y;
+      const bDist = Math.hypot(bdx, bdy) || 1;
+
+      // If within attack range of a barricaded breach point, stop and attack!
+      if (bDist < 46 && bestBp.isBarricaded && (bestBp.barricadeHp || 0) > 0) {
+        return { moveX: 0, moveY: 0, attackingBreach: bestBp };
+      }
+
+      return { moveX: bdx / bDist, moveY: bdy / bDist };
+    }
+  }
 
   // If path is completely clear, head directly
   const blocked = isLineBlockedByWalls(enemy.x, enemy.y, targetX, targetY, walls);
@@ -766,7 +1206,7 @@ export function computeSmartSteering(
   return { moveX: directX, moveY: directY };
 }
 
-/** Update individual enemy behavior with Smart Pathing and Sheriff Kiting */
+/** Update individual enemy behavior with Smart Pathing, Sheriff Stage Quota, Officer Patrol, and Upgrades */
 export function updateEnemyAI(
   enemy: EnemyState,
   playerX: number,
@@ -776,10 +1216,16 @@ export function updateEnemyAI(
   doorways: { x: number; y: number }[] | undefined,
   dt: number,
   arenaWidth: number,
-  arenaHeight: number
+  arenaHeight: number,
+  survivalTime: number = 0,
+  activeUpgrades: string[] = [],
+  breachPoints?: BreachPoint[],
+  mapId?: MapType
 ): {
   dropsPuddle?: { x: number; y: number; type?: 'coffee' | 'caution' };
   requestsOfficerBackup?: boolean;
+  shinySpecial?: string;
+  attackingBreach?: BreachPoint;
 } {
   const dx = playerX - enemy.x;
   const dy = playerY - enemy.y;
@@ -794,44 +1240,119 @@ export function updateEnemyAI(
   let currentSpeed = enemy.baseSpeed * enemy.speedMultiplier;
   let dropsPuddle: { x: number; y: number; type?: 'coffee' | 'caution' } | undefined = undefined;
   let requestsOfficerBackup: boolean | undefined = undefined;
+  let shinySpecial: string | undefined = undefined;
+  let attackingBreach: BreachPoint | undefined = undefined;
 
-  let { moveX, moveY } = computeSmartSteering(enemy, playerX, playerY, walls, doorways);
+  // Shiny Mini-Boss Special Attack Cadence
+  if (enemy.isShiny) {
+    enemy.shinyAttackTimer = (enemy.shinyAttackTimer || 3.5) - dt;
+    if (enemy.shinyAttackTimer <= 0) {
+      enemy.shinyAttackTimer = 4.8 + Math.random() * 2.0;
+      shinySpecial = `${enemy.archetype}_shiny_special`;
+    }
+  }
+
+  const steer = computeSmartSteering(enemy, playerX, playerY, walls, doorways, breachPoints, mapId);
+  let { moveX, moveY } = steer;
+
+  // If attacking a barricaded breach point, damage the barricade!
+  if (steer.attackingBreach) {
+    attackingBreach = steer.attackingBreach;
+    enemy.attackCooldown = (enemy.attackCooldown || 0) - dt;
+    if (enemy.attackCooldown <= 0) {
+      enemy.attackCooldown = 0.5;
+      if (steer.attackingBreach.barricadeHp !== undefined) {
+        steer.attackingBreach.barricadeHp -= 20;
+        if (steer.attackingBreach.barricadeHp <= 0) {
+          steer.attackingBreach.barricadeHp = 0;
+          steer.attackingBreach.isBarricaded = false;
+          steer.attackingBreach.breached = true;
+        }
+      }
+    }
+  }
 
   switch (enemy.archetype) {
     case 'sheriff': {
-      // SHERIFF: Slow summoner with visible line-of-sight searchlight cone!
-      const angleToPlayer = Math.atan2(dy, dx);
-      // Sheriff faces towards player when observing or moving
-      enemy.angle = angleToPlayer;
+      // SHERIFF: Spawns a set amount of cops according to game stage, then stops summoning and chases directly!
+      const stageQuota = enemy.stageQuota || getStageCopLimit(survivalTime);
+      const summoned = enemy.copsSummoned || 0;
+
+      // Realistic, fair searchlight cone: 165px reach (220px with spotlight upgrade), 26° cone
+      const searchlightReach = activeUpgrades.includes('sheriff_spotlight') ? 220 : 165;
+      const coneWidth = activeUpgrades.includes('sheriff_spotlight') ? Math.PI / 8 : Math.PI / 11;
+
+      // Angle to player compared to sheriff's facing angle
+      const toPlayerAngle = Math.atan2(dy, dx);
       const angleDiff = Math.abs(
-        Math.atan2(Math.sin(angleToPlayer - enemy.angle), Math.cos(angleToPlayer - enemy.angle))
+        Math.atan2(Math.sin(toPlayerAngle - enemy.angle), Math.cos(toPlayerAngle - enemy.angle))
       );
       const unobstructed = !isLineBlockedByWalls(enemy.x, enemy.y, playerX, playerY, walls);
-      const inCone = dist < 380 && angleDiff <= Math.PI / 6 && unobstructed;
+      const inCone = dist <= searchlightReach && angleDiff <= coneWidth && unobstructed;
       enemy.isSpottedInCone = inCone;
 
-      const minDistance = 380;
-      if (dist < minDistance || inCone) {
-        // Kite away from player towards open space
-        moveX = -dirX;
-        moveY = -dirY;
-        enemy.isKiting = true;
-      } else {
-        enemy.isKiting = false;
-      }
+      if (summoned < stageQuota) {
+        // Still has officers to deploy: Kites only if within proximity or directly in searchlight
+        const minDistance = 210;
+        if (dist < minDistance || inCone) {
+          moveX = -dirX;
+          moveY = -dirY;
+          enemy.isKiting = true;
+        } else {
+          enemy.isKiting = false;
+        }
 
-      // Continuous whistle summons backup every 4.0s (accelerated if spotted in cone)
-      if (enemy.specialTimer <= 0 || (inCone && enemy.specialTimer > 2.0)) {
-        enemy.specialTimer = 4.0;
-        requestsOfficerBackup = true;
-        dropsPuddle = { x: enemy.x, y: enemy.y, type: 'caution' };
+        // Whistle summons backup when special timer expires (tactical cadence, no flood!)
+        if (enemy.specialTimer <= 0) {
+          enemy.specialTimer = inCone ? 4.5 : 7.0;
+          enemy.copsSummoned = summoned + 1;
+          requestsOfficerBackup = true;
+          dropsPuddle = { x: enemy.x, y: enemy.y, type: 'caution' };
+        }
+      } else {
+        // All officers deployed for this stage!
+        // No longer summons again; opts for aggressive direct chase!
+        enemy.isKiting = false;
+        const pursuitSteer = computeSmartSteering(enemy, playerX, playerY, walls, doorways, breachPoints, mapId);
+        moveX = pursuitSteer.moveX;
+        moveY = pursuitSteer.moveY;
+        const pursuitBoost = activeUpgrades.includes('sheriff_determination') ? 1.45 : 1.25;
+        currentSpeed *= pursuitBoost;
       }
       break;
     }
 
     case 'officer': {
-      // OFFICER: Fast deputy responder summoned by sheriff/city
-      enemy.isSirenActive = true;
+      // OFFICER: Patrols areas at steady pace. No cone! Detects via sound / proximity hearing!
+      if (!enemy.isAlerted) {
+        enemy.isSirenActive = false;
+        currentSpeed *= 0.65; // Moderate patrol pace
+
+        // Patrol wandering heading
+        if (enemy.patrolTimer === undefined || enemy.patrolTimer <= 0) {
+          enemy.patrolTimer = 2.4 + Math.random() * 2.2;
+          enemy.patrolAngle = (enemy.patrolAngle ?? Math.random() * Math.PI * 2) + (Math.random() - 0.5) * 1.5;
+        }
+        enemy.patrolTimer -= dt;
+
+        moveX = Math.cos(enemy.patrolAngle || 0);
+        moveY = Math.sin(enemy.patrolAngle || 0);
+        enemy.angle = enemy.patrolAngle || 0;
+
+        // Proximity detection radius (no cone): 85px (or 130px with officer_highbeam upgrade)
+        const hearingDist = activeUpgrades.includes('officer_highbeam') ? 130 : 85;
+        const unobstructed = !isLineBlockedByWalls(enemy.x, enemy.y, playerX, playerY, walls);
+        if (dist <= hearingDist && unobstructed) {
+          enemy.isAlerted = true;
+          enemy.isSirenActive = true;
+        }
+      } else {
+        // Alerted Mode: Fast pursuit with flashing siren!
+        enemy.isSirenActive = true;
+        if (activeUpgrades.includes('officer_cruiser_pace')) {
+          currentSpeed *= 1.3;
+        }
+      }
       break;
     }
 
@@ -841,58 +1362,63 @@ export function updateEnemyAI(
       if (enemy.deflectSparkTimer && enemy.deflectSparkTimer > 0) {
         enemy.deflectSparkTimer -= dt;
       }
+      const dashCooldown = activeUpgrades.includes('delinquent_unflinching_pride') ? 1.7 : 2.8;
       if (enemy.specialTimer <= 0) {
         if (!enemy.isDashing) {
           enemy.isDashing = true;
           enemy.specialTimer = 0.9;
         } else {
           enemy.isDashing = false;
-          enemy.specialTimer = 2.8;
+          enemy.specialTimer = dashCooldown;
         }
       }
       if (enemy.isDashing) {
-        currentSpeed *= 1.8;
+        currentSpeed *= 1.85;
       }
       break;
     }
 
     case 'tomboy': {
+      const dashMultiplier = activeUpgrades.includes('tomboy_track_spikes') ? 2.6 : 2.2;
       if (enemy.specialTimer <= 0) {
         if (!enemy.isDashing) {
           enemy.isDashing = true;
           enemy.specialTimer = 0.7;
         } else {
           enemy.isDashing = false;
-          enemy.specialTimer = 2.4;
+          enemy.specialTimer = 2.3;
         }
       }
       if (enemy.isDashing) {
-        currentSpeed *= 2.2;
+        currentSpeed *= dashMultiplier;
       }
       break;
     }
 
     case 'goth': {
+      const teleportCooldown = activeUpgrades.includes('goth_shadow_slip') ? 1.8 : 3.5;
+      const teleportDist = activeUpgrades.includes('goth_shadow_slip') ? 140 : 90;
       if (enemy.specialTimer <= 0 && dist > 120) {
-        enemy.x += dirX * 90;
-        enemy.y += dirY * 90;
-        enemy.specialTimer = 3.5;
+        enemy.x += dirX * teleportDist;
+        enemy.y += dirY * teleportDist;
+        enemy.specialTimer = teleportCooldown;
       }
       break;
     }
 
     case 'gyaru': {
       let cheerCount = 0;
+      const cheerRange = activeUpgrades.includes('gyaru_hype_squad') ? 200 : 140;
       for (const other of allEnemies) {
         if (other.id !== enemy.id && other.archetype === 'gyaru') {
           const d2 = distanceSq(enemy.x, enemy.y, other.x, other.y);
-          if (d2 < 140 * 140) {
+          if (d2 < cheerRange * cheerRange) {
             cheerCount++;
-            other.speedMultiplier = 1.25;
+            other.speedMultiplier = activeUpgrades.includes('gyaru_hype_squad') ? 1.35 : 1.25;
           }
         }
       }
-      if (cheerCount > 0) currentSpeed *= 1.2;
+      if (cheerCount > 0) currentSpeed *= 1.25;
 
       const perpX = -dirY;
       const perpY = dirX;
@@ -905,16 +1431,33 @@ export function updateEnemyAI(
     }
 
     case 'senpai': {
+      const puddleInterval = activeUpgrades.includes('senpai_espresso_rush') ? 2.2 : 4.2;
       if (enemy.specialTimer <= 0) {
         dropsPuddle = { x: enemy.x, y: enemy.y, type: 'coffee' };
-        enemy.specialTimer = 4.2;
+        enemy.specialTimer = puddleInterval;
+      }
+      if (activeUpgrades.includes('senpai_espresso_rush')) {
+        currentSpeed *= 1.2;
       }
       break;
     }
 
     case 'yandere': {
       enemy.sightTimer = (enemy.sightTimer || 0) + dt;
-      currentSpeed *= Math.min(1.7, 1.0 + enemy.sightTimer * 0.08);
+      let yandereBonus = Math.min(1.7, 1.0 + enemy.sightTimer * 0.08);
+      if (activeUpgrades.includes('yandere_red_string')) {
+        yandereBonus *= 1.25;
+      }
+      if (activeUpgrades.includes('yandere_crimson_frenzy') && enemy.hp < enemy.maxHp * 0.5) {
+        yandereBonus *= 1.35;
+      }
+      currentSpeed *= yandereBonus;
+
+      // Obsessive vortex: If player is very far, teleport closer!
+      if (activeUpgrades.includes('yandere_obsessive_phase') && dist > 550) {
+        enemy.x = playerX - dirX * 220;
+        enemy.y = playerY - dirY * 220;
+      }
       break;
     }
   }
@@ -944,7 +1487,7 @@ export function updateEnemyAI(
 
   if (enemy.hitFlashTimer > 0) enemy.hitFlashTimer -= dt;
 
-  return { dropsPuddle, requestsOfficerBackup };
+  return { dropsPuddle, requestsOfficerBackup, shinySpecial, attackingBreach };
 }
 
 /** Updates neutral civilians in Metropolis with erratic, suspicious behaviors */
@@ -1036,6 +1579,62 @@ export function rollArchetypeDebuff(
   };
 }
 
+export interface DebuffedPlayerStats {
+  speed: number;
+  damageMultiplier: number;
+  spreadMultiplier: number;
+  fireIntervalMultiplier: number;
+  knockbackTakenMultiplier: number;
+  knockbackDealtMultiplier: number;
+  isRadarGlitched: boolean;
+  burstLock: boolean;
+  driftMomentum: number;
+  crosshairSway: number;
+  disarmOnHit: boolean;
+  recoilPull: number;
+  periodicTwitchInterval: number;
+  moveShotSpeedPenalty: number;
+  impactBlur: boolean;
+  searchlightGlare: boolean;
+  curfewContrast: boolean;
+  bountyMagnet: boolean;
+  cautionTether: boolean;
+  carSpeedMultiplier: number;
+  matchSpeed: boolean;
+  pickupDelay: number;
+  inverseKnockback: boolean;
+  invulnDurationMultiplier: number;
+  turnStumble: boolean;
+  bulletLifetimeMultiplier: number;
+  splinterShrapnel: boolean;
+  vignetteBlur: boolean;
+  tightFlank: boolean;
+  shadowTentacles: boolean;
+  missPenalty: boolean;
+  wispBullets: boolean;
+  radarVoid: boolean;
+  candlelightRadius: number;
+  bulletGravity: boolean;
+  glitterBurst: boolean;
+  flashWhiteout: boolean;
+  pickupKick: boolean;
+  cheerSurge: boolean;
+  floorSlip: boolean;
+  spinKnockback: boolean;
+  clockAccel: number;
+  coffeeBurn: boolean;
+  redTapeBullets: boolean;
+  cardinalOnly: boolean;
+  anxietyPulse: boolean;
+  auditDelay: boolean;
+  redTether: boolean;
+  doubleDamage: boolean;
+  tunnelVision: boolean;
+  jealousyFrenzy: boolean;
+  emptyStun: boolean;
+  perimeterFire: boolean;
+}
+
 /** Computes player stats modified by all active permanent debuffs */
 export function computeDebuffedPlayerStats(
   baseSpeed: number,
@@ -1043,20 +1642,60 @@ export function computeDebuffedPlayerStats(
   baseSpread: number,
   baseFireInterval: number,
   debuffs: ActiveDebuff[]
-): {
-  speed: number;
-  damageMultiplier: number;
-  spreadMultiplier: number;
-  fireIntervalMultiplier: number;
-  knockbackTakenMultiplier: number;
-  isRadarGlitched: boolean;
-} {
+): DebuffedPlayerStats {
   let speed = baseSpeed;
   let damageMultiplier = 1.0;
   let spreadMultiplier = 1.0;
   let fireIntervalMultiplier = 1.0;
   let knockbackTakenMultiplier = 1.0;
+  let knockbackDealtMultiplier = 1.0;
   let isRadarGlitched = false;
+  let burstLock = false;
+  let driftMomentum = 0.75; // Default ground friction damping
+  let crosshairSway = 0;
+  let disarmOnHit = false;
+  let recoilPull = 0;
+  let periodicTwitchInterval = 0;
+  let moveShotSpeedPenalty = 1.0;
+  let impactBlur = false;
+  let searchlightGlare = false;
+  let curfewContrast = false;
+  let bountyMagnet = false;
+  let cautionTether = false;
+  let carSpeedMultiplier = 1.0;
+  let matchSpeed = false;
+  let pickupDelay = 0;
+  let inverseKnockback = false;
+  let invulnDurationMultiplier = 1.0;
+  let turnStumble = false;
+  let bulletLifetimeMultiplier = 1.0;
+  let splinterShrapnel = false;
+  let vignetteBlur = false;
+  let tightFlank = false;
+  let shadowTentacles = false;
+  let missPenalty = false;
+  let wispBullets = false;
+  let radarVoid = false;
+  let candlelightRadius = 0;
+  let bulletGravity = false;
+  let glitterBurst = false;
+  let flashWhiteout = false;
+  let pickupKick = false;
+  let cheerSurge = false;
+  let floorSlip = false;
+  let spinKnockback = false;
+  let clockAccel = 1.0;
+  let coffeeBurn = false;
+  let redTapeBullets = false;
+  let cardinalOnly = false;
+  let anxietyPulse = false;
+  let auditDelay = false;
+  let redTether = false;
+  let doubleDamage = false;
+  let tunnelVision = false;
+  let jealousyFrenzy = false;
+  let emptyStun = false;
+  let perimeterFire = false;
 
   for (const d of debuffs) {
     if (d.effectType === 'slow') speed *= d.effectValue;
@@ -1064,7 +1703,54 @@ export function computeDebuffedPlayerStats(
     if (d.effectType === 'spread_increase') spreadMultiplier *= d.effectValue;
     if (d.effectType === 'fire_rate') fireIntervalMultiplier /= d.effectValue;
     if (d.effectType === 'knockback_taken') knockbackTakenMultiplier *= d.effectValue;
+    if (d.effectType === 'knockback_dealt') knockbackDealtMultiplier *= d.effectValue;
     if (d.effectType === 'radar_glitch') isRadarGlitched = true;
+    if (d.effectType === 'burst_lock') burstLock = true;
+    if (d.effectType === 'drift_momentum') driftMomentum = 0.93; // Slipperiness
+    if (d.effectType === 'crosshair_sway') crosshairSway = d.effectValue || 1.4;
+    if (d.effectType === 'disarm_on_hit') disarmOnHit = true;
+    if (d.effectType === 'recoil_pull') recoilPull = d.effectValue || 1.2;
+    if (d.effectType === 'periodic_twitch') periodicTwitchInterval = d.effectValue || 9.0;
+    if (d.effectType === 'move_shot_penalty') moveShotSpeedPenalty = d.effectValue || 0.6;
+    if (d.effectType === 'impact_blur') impactBlur = true;
+    if (d.effectType === 'searchlight_glare') searchlightGlare = true;
+    if (d.effectType === 'curfew_contrast') curfewContrast = true;
+    if (d.effectType === 'bounty_magnet') bountyMagnet = true;
+    if (d.effectType === 'caution_tether') cautionTether = true;
+    if (d.effectType === 'car_speed') carSpeedMultiplier = d.effectValue || 1.3;
+    if (d.effectType === 'match_speed') matchSpeed = true;
+    if (d.effectType === 'pickup_delay') pickupDelay = d.effectValue || 0.8;
+    if (d.effectType === 'inverse_knockback') inverseKnockback = true;
+    if (d.effectType === 'invuln_halved') invulnDurationMultiplier = d.effectValue || 0.5;
+    if (d.effectType === 'turn_stumble') turnStumble = true;
+    if (d.effectType === 'bullet_decay') bulletLifetimeMultiplier = d.effectValue || 0.75;
+    if (d.effectType === 'splinter_shrapnel') splinterShrapnel = true;
+    if (d.effectType === 'vignette_blur') vignetteBlur = true;
+    if (d.effectType === 'tight_flank') tightFlank = true;
+    if (d.effectType === 'shadow_tentacles') shadowTentacles = true;
+    if (d.effectType === 'miss_penalty') missPenalty = true;
+    if (d.effectType === 'wisp_bullets') wispBullets = true;
+    if (d.effectType === 'radar_void') radarVoid = true;
+    if (d.effectType === 'candlelight_radius') candlelightRadius = d.effectValue || 240;
+    if (d.effectType === 'bullet_gravity') bulletGravity = true;
+    if (d.effectType === 'glitter_burst') glitterBurst = true;
+    if (d.effectType === 'flash_whiteout') flashWhiteout = true;
+    if (d.effectType === 'pickup_kick') pickupKick = true;
+    if (d.effectType === 'cheer_surge') cheerSurge = true;
+    if (d.effectType === 'floor_slip') floorSlip = true;
+    if (d.effectType === 'spin_knockback') spinKnockback = true;
+    if (d.effectType === 'clock_accel') clockAccel = d.effectValue || 1.3;
+    if (d.effectType === 'coffee_burn') coffeeBurn = true;
+    if (d.effectType === 'red_tape_bullets') redTapeBullets = true;
+    if (d.effectType === 'cardinal_only') cardinalOnly = true;
+    if (d.effectType === 'anxiety_pulse') anxietyPulse = true;
+    if (d.effectType === 'audit_delay') auditDelay = true;
+    if (d.effectType === 'red_tether') redTether = true;
+    if (d.effectType === 'double_damage') doubleDamage = true;
+    if (d.effectType === 'tunnel_vision') tunnelVision = true;
+    if (d.effectType === 'jealousy_frenzy') jealousyFrenzy = true;
+    if (d.effectType === 'empty_stun') emptyStun = true;
+    if (d.effectType === 'perimeter_fire') perimeterFire = true;
   }
 
   return {
@@ -1073,7 +1759,54 @@ export function computeDebuffedPlayerStats(
     spreadMultiplier,
     fireIntervalMultiplier,
     knockbackTakenMultiplier,
+    knockbackDealtMultiplier,
     isRadarGlitched,
+    burstLock,
+    driftMomentum: floorSlip ? 0.96 : driftMomentum,
+    crosshairSway,
+    disarmOnHit,
+    recoilPull,
+    periodicTwitchInterval,
+    moveShotSpeedPenalty,
+    impactBlur,
+    searchlightGlare,
+    curfewContrast,
+    bountyMagnet,
+    cautionTether,
+    carSpeedMultiplier,
+    matchSpeed,
+    pickupDelay: auditDelay ? 1.5 : pickupDelay,
+    inverseKnockback,
+    invulnDurationMultiplier,
+    turnStumble,
+    bulletLifetimeMultiplier,
+    splinterShrapnel,
+    vignetteBlur,
+    tightFlank,
+    shadowTentacles,
+    missPenalty,
+    wispBullets,
+    radarVoid,
+    candlelightRadius,
+    bulletGravity,
+    glitterBurst,
+    flashWhiteout,
+    pickupKick,
+    cheerSurge,
+    floorSlip,
+    spinKnockback,
+    clockAccel,
+    coffeeBurn,
+    redTapeBullets,
+    cardinalOnly,
+    anxietyPulse,
+    auditDelay,
+    redTether,
+    doubleDamage,
+    tunnelVision,
+    jealousyFrenzy,
+    emptyStun,
+    perimeterFire,
   };
 }
 
