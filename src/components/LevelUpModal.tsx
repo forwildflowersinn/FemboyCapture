@@ -45,8 +45,12 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-slate-900/95 border-2 border-pink-500/60 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 text-white overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
+      <div
+        className={`relative w-full ${
+          upgrades.length > 3 ? 'max-w-4xl' : 'max-w-2xl'
+        } bg-slate-900/95 border-2 border-pink-500/60 rounded-2xl shadow-2xl p-5 sm:p-7 flex flex-col gap-5 text-white overflow-hidden my-auto`}
+      >
         {/* Decorative Top Accent Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1 bg-gradient-to-r from-transparent via-pink-500 to-transparent blur-sm" />
 
@@ -57,7 +61,18 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
             <span>FASCINATION SURGE · LEVEL {currentLevel}</span>
           </div>
 
-          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white mt-1">
+          {upgrades.length === 1 && (
+            <div className="px-3 py-1 rounded-lg bg-rose-950/90 border border-rose-500/60 text-rose-300 text-[11px] font-black uppercase tracking-wider">
+              ⚡ SABOTAGED SPAM DOSSIER: Choices Locked to 1!
+            </div>
+          )}
+          {upgrades.length > 3 && (
+            <div className="px-3 py-1 rounded-lg bg-indigo-950/90 border border-indigo-400/60 text-indigo-200 text-[11px] font-black uppercase tracking-wider">
+              💌 SECRET ADMIRER DOSSIER: {upgrades.length} Evolution Choices Unlocked!
+            </div>
+          )}
+
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white mt-0.5">
             THEY ADORE YOU EVEN MORE...
           </h2>
 
@@ -67,13 +82,21 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({
             <span className="text-slate-400 block text-xs mt-0.5">({charmPerk.accessory})</span>
           </div>
 
-          <p className="text-xs text-slate-300 mt-1">
+          <p className="text-xs text-slate-300 mt-0.5">
             Choose which pursuer gains a formidable power-up fueled by their desire for you:
           </p>
         </div>
 
         {/* Upgrade Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div
+          className={`grid gap-3.5 ${
+            upgrades.length === 1
+              ? 'grid-cols-1 max-w-sm mx-auto w-full'
+              : upgrades.length === 2
+              ? 'grid-cols-1 sm:grid-cols-2'
+              : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+          }`}
+        >
           {upgrades.map((upgrade) => {
             const archColor = getArchetypeColor(upgrade.archetype);
             const archData = GAME_TEXT.archetypes[upgrade.archetype as ArchetypeKey];
